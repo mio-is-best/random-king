@@ -2389,54 +2389,73 @@ function buildMap(){
     if (isLast) nodes[row[0]].boss = true;
     rows.push(row);
   }
-  // 每行最多 1 个战斗节点，其余改成非战斗；隔行保留战斗
-  // 战斗节点在本行里的列位置是随机的（否则永远挤在最左边/右边那一列）
-  for (let r = 0; r < rowCount; r++){
-    const row = rows[r];
-    const isLast = (r === rowCount - 1);
-    const keepCombat = (r === 0) || isLast || (r % 2 === 1);
-    const combatIdx = (r === 0 || isLast) ? 0 : (keepCombat ? ri(0, row.length - 1) : -1);
-    row.forEach((id, k) => {
-      if (k !== combatIdx) nodes[id].type = nonCombat();
-    });
+  // 先连线，再按「可达性」分配节点类型：保证每个战斗节点都在玩家必经的路上
+  for (let r = 0; r < rows.length - 1; r++){
+    linkRows(rows[r], rows[r+1], nodes);
   }
-  // 战斗数不足时，把中间的非战斗节点补成战斗
-  const countEnemies = () => S.map ? 0 : nodes.filter(n => n.type === "enemy").length;
-  let have = nodes.filter(n => n.type === "enemy").length;
+
+  // 逐行推算可达集合
+  const reachRows = [];
+  {
+    let cur = new Set(rows[0]);
+    reachRows.push(cur);
+    for (let r = 0; r < rows.length - 1; r++){
+      const nx = new Set();
+      for (const id of cur) for (const c of nodes[id].next) nx.add(c);
+      reachRows.push(nx);
+      cur = nx;
+    }
+  }
+
+  // 分配类型：第 0 行战斗、每两行一个战斗、最后一行 BOSS
+  let enemyNo = 0;
+  for (let r = 0; r < rows.length; r++){
+    const row = rows[r];
+    const isLast = (r === rows.length - 1);
+    const keepCombat = (r === 0) || isLast || (r % 2 === 1);
+    let combatId = -1;
+    if (r === 0 || isLast){
+      combatId = row[0];
+    } else if (keepCombat){
+      // 在本行「可达」的节点里随机挑一个当战斗
+      const cand = row.filter(id => reachRows[r].has(id));
+      const pool = cand.length ? cand : row;
+      combatId = pool[ri(0, pool.length - 1)];
+    }
+    for (const id of row){
+      if (id === combatId){
+        nodes[id].type = "enemy";
+        nodes[id].idx = ++enemyNo;
+      } else {
+        nodes[id].type = nonCombat();
+      }
+    }
+    if (isLast) nodes[row[0]].boss = true;
+  }
+
+  // 战斗层数不足时补，多了就减（只动可达节点）
+  const countEnemies = () => nodes.filter(n => n.type === "enemy").length;
+  let have = countEnemies();
   const need = floors;
   if (have < need){
-    const spare = nodes.filter(n => n.type !== "enemy" && !n.boss && n.row > 0 && n.row < rowCount - 1);
-    // 往空行里补战斗时，随机挑行，不要都堆在同一列
+    const spare = [];
+    for (let r = 1; r < rows.length - 1; r++){
+      for (const id of rows[r]){
+        if (nodes[id].type !== "enemy" && reachRows[r].has(id)) spare.push(id);
+      }
+    }
     for (let i = spare.length - 1; i > 0; i--){
       const j = Math.floor(rnd() * (i + 1));
       const t = spare[i]; spare[i] = spare[j]; spare[j] = t;
     }
-    for (const n of spare){
+    for (const id of spare){
       if (have >= need) break;
-      n.type = "enemy";
+      nodes[id].type = "enemy";
+      nodes[id].idx = ++enemyNo;
       have++;
     }
-  } else if (have > need){
-    const extra = nodes.filter(n => n.type === "enemy" && !n.boss && n.row > 0);
-    for (let i = extra.length - 1; i > 0; i--){
-      const j = Math.floor(rnd() * (i + 1));
-      const t = extra[i]; extra[i] = extra[j]; extra[j] = t;
-    }
-    for (const n of extra){
-      if (have <= need) break;
-      n.type = nonCombat();
-      have--;
-    }
   }
-
-  // 编号
-  let enemyNo = 0;
-  for (const n of nodes) if (n.type === "enemy") n.idx = ++enemyNo;
-
-  // 连线：按左右位置就近连接
-  for (let r = 0; r < rows.length - 1; r++){
-    linkRows(rows[r], rows[r+1], nodes);
-  }
+  for (const n of nodes) if (n.type === "enemy" && !n.idx) n.idx = ++enemyNo;
 
   S.map = nodes;
   S.mapRows = rows;
@@ -3587,6 +3606,8 @@ function tutorialMap(){
 function startTutorial(){
   closeModal();
   S.tutorial = { step: 1 };
+  if (S.tutorialTimer) clearInterval(S.tutorialTimer);
+  S.tutorialTimer = setInterval(() => { if (S.tutorial) tutHint(); }, 300);
   newRun("nurse", "TUTORIAL");
   tutorialMap();
   showScreen("map");
@@ -3597,6 +3618,7 @@ function startTutorial(){
 
 function endTutorial(){
   S.tutorial = null;
+  if (S.tutorialTimer){ clearInterval(S.tutorialTimer); S.tutorialTimer = null; }
   markTutorialSeen();
   const el = document.getElementById("tut-bar");
   if (el) el.remove();
