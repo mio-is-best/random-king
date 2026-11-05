@@ -3047,6 +3047,7 @@ function openMenu(){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
       <button class="btn ghost block" onclick="openRules()">玩 法 说 明</button>
+      <button class="btn ghost block" onclick="startTutorial()">新 手 教 程</button>
       <button class="btn ghost block" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost block" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       <button class="btn blood block" onclick="quitToTitle()">退 出 游 戏</button>
@@ -3557,6 +3558,98 @@ function useItem(uid){
 }
 
 /* 任意状态变化后：刷新 HUD 与当前界面 */
+
+/* ---------- 新手教程 ---------- */
+const TUT_KEY = "rk4_tut_done";
+
+function tutorialSeen(){
+  try { return localStorage.getItem(TUT_KEY) === "1"; } catch(e){ return false; }
+}
+function markTutorialSeen(){
+  try { localStorage.setItem(TUT_KEY, "1"); } catch(e){}
+}
+
+/* 一条很短的手工地图：战斗 → 宝箱 → BOSS */
+function tutorialMap(){
+  const mk = (id, row, type) => ({ id, row, type, next: [], idx: 0 });
+  const a = mk(0, 0, "enemy"); a.idx = 1;
+  const b = mk(1, 1, "chest");
+  const c = mk(2, 2, "enemy"); c.idx = 2; c.boss = true;
+  a.next = [1]; b.next = [2];
+  S.map = [a, b, c];
+  S.mapRows = [[0], [1], [2]];
+  S.reach = [0];
+  S.mapDone = [];
+  S.nodeIdx = -1;
+  S.floors = 2;
+}
+
+function startTutorial(){
+  closeModal();
+  S.tutorial = { step: 1 };
+  newRun("nurse", "TUTORIAL");
+  tutorialMap();
+  showScreen("map");
+  afterStateChange();
+  tutHint();
+  log("新手教程：跟着上面的提示走完这一小局。", "sys");
+}
+
+function endTutorial(){
+  S.tutorial = null;
+  markTutorialSeen();
+  const el = document.getElementById("tut-bar");
+  if (el) el.remove();
+}
+
+function tutHint(){
+  const old = document.getElementById("tut-bar");
+  if (!S.tutorial){ if (old) old.remove(); return; }
+
+  let text = "";
+  if (S.screen === "battle"){
+    if (S.battle && S.battle.round === 1 && !S.battle.lastFormula) {
+      text = "<b>② 点「攻击」</b> —— 计算器会掷出一个数字，那就是你的伤害。";
+    } else {
+      text = "把敌人打到 0 血就赢；打不死就轮到他反击。血条见上方。";
+    }
+  } else if (S.screen === "loot"){
+    text = "<b>③ 三选一</b> —— 宝箱里的道具挑一件带走。";
+  } else if (S.screen === "map"){
+    text = (S.mapDone.length === 0)
+      ? "<b>① 点地图上的「战斗」节点</b>，开始第一场战斗。"
+      : "<b>④ 点「宝箱」节点</b>，去拿一件道具。";
+  } else {
+    text = "跟着提示走完这一小局就算学会啦。";
+  }
+
+  const bar = old || document.createElement("div");
+  bar.id = "tut-bar";
+  bar.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);top:10px;z-index:60;" +
+    "max-width:min(720px,92vw);background:linear-gradient(180deg,#2a2342,#1b1728);" +
+    "border:1px solid #7a5c1e;border-radius:12px;padding:10px 14px;display:flex;gap:12px;" +
+    "align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.55);font-size:13px;color:#e8e2f2";
+  bar.innerHTML = `<div style="font-size:12px;letter-spacing:.16em;color:#e8c46a;white-space:nowrap">新 手 教 程</div>
+    <div style="flex:1;line-height:1.5">${text}</div>
+    <button class="btn ghost sm" onclick="endTutorial()">跳 过</button>`;
+  if (!old) document.body.appendChild(bar);
+}
+
+/* 第一次打开时问一句 */
+function maybeTutorialPrompt(){
+  if (tutorialSeen()) return;
+  const div = modalShell(`
+    <h3>要不要先学一下？</h3>
+    <div class="msub" style="margin-bottom:14px">用一小局带你走一遍：怎么攻击、怎么看计算器、怎么拿道具。</div>
+    <div style="display:flex;gap:10px">
+      <button class="btn block" id="tut-yes">好 的，来 一 局</button>
+      <button class="btn ghost block" id="tut-no">不 用 了</button>
+    </div>`);
+  const yes = $("#tut-yes", div), no = $("#tut-no", div);
+  if (yes) yes.onclick = () => { closeModal(); startTutorial(); };
+  if (no) no.onclick = () => { closeModal(); markTutorialSeen(); };
+}
+
 function afterStateChange(){
   checkAchievements();
   renderHUD();
@@ -3564,6 +3657,7 @@ function afterStateChange(){
   else if (S.screen === "map") renderMap();
   else if (S.screen === "shop") renderShop();
   else if (S.screen === "loot") renderLoot();
+  if (S.tutorial) tutHint();
 }
 
 /* ---------- 战斗 ---------- */
@@ -4094,6 +4188,7 @@ function gameOver(){
 }
 
 function victory(){
+  if (S.tutorial){ endTutorial(); modalShell(`<h3>教 程 完 成</h3><div class="msub">你已经学会基本操作了，正式开局会难很多，祝你好运。</div><div class="modal-close"><button class="btn" onclick="closeModal();quitToTitle()">回 到 标 题</button></div>`); return; }
   const stars = S.depth >= 12 ? "★★" : (S.depth >= 10 ? "★" : "");
   saveRecord(true);
   const hell = (S.diff || 1) >= 1.25;
@@ -4688,6 +4783,7 @@ S.diff = loadDiff();
 S.autoNext = loadAutoNext();
 renderTitle();
 showScreen("title");
+setTimeout(maybeTutorialPrompt, 350);
 </script>
 </body>
 </html>
