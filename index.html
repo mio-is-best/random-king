@@ -2390,13 +2390,14 @@ function buildMap(){
     rows.push(row);
   }
   // 每行最多 1 个战斗节点，其余改成非战斗；隔行保留战斗
+  // 战斗节点在本行里的列位置是随机的（否则永远挤在最左边/右边那一列）
   for (let r = 0; r < rowCount; r++){
     const row = rows[r];
     const isLast = (r === rowCount - 1);
     const keepCombat = (r === 0) || isLast || (r % 2 === 1);
+    const combatIdx = (r === 0 || isLast) ? 0 : (keepCombat ? ri(0, row.length - 1) : -1);
     row.forEach((id, k) => {
-      const keep = (r === 0) || isLast ? (k === 0) : (keepCombat && k === 0);
-      if (!keep) nodes[id].type = nonCombat();
+      if (k !== combatIdx) nodes[id].type = nonCombat();
     });
   }
   // 战斗数不足时，把中间的非战斗节点补成战斗
@@ -2405,6 +2406,7 @@ function buildMap(){
   const need = floors;
   if (have < need){
     const spare = nodes.filter(n => n.type !== "enemy" && !n.boss && n.row > 0 && n.row < rowCount - 1);
+    // 往空行里补战斗时，随机挑行，不要都堆在同一列
     for (let i = spare.length - 1; i > 0; i--){
       const j = Math.floor(rnd() * (i + 1));
       const t = spare[i]; spare[i] = spare[j]; spare[j] = t;
