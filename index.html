@@ -86,6 +86,10 @@ img{-webkit-user-drag:none;user-select:none}
 .node .nx{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:#e8524b;font-size:22px;font-weight:900;text-shadow:0 0 6px rgba(0,0,0,.8);pointer-events:none}
 .node{position:relative}
+.node .fire{position:absolute;top:-12px;left:50%;transform:translateX(-50%);font-size:14px;
+  filter:drop-shadow(0 0 6px #ff8a3d);animation:fireFlick .9s infinite alternate}
+@keyframes fireFlick{from{transform:translateX(-50%) scale(.85);opacity:.75}to{transform:translateX(-50%) scale(1.1);opacity:1}}
+.node.elite{border-color:#ff8a3d !important;box-shadow:0 0 12px rgba(255,120,40,.45)}
 
 /* ============ 场景 ============ */
 #stage{position:relative;min-height:520px}
@@ -1508,7 +1512,7 @@ function buildIndex(){
   ITEM_BY_ID.clear();
   for (const d of ITEMS) ITEM_BY_ID.set(d.id, d);
   for (const k in poolByGrade) delete poolByGrade[k];
-  for (const d of ITEMS){
+  for (const d0 of ITEMS){ const d = shownDef(d0.id) || d0;
     if (d.id <= 0 || d.draw === false || d.shopOnly) continue;   // 只在商店出现的道具不进抽取池
     (poolByGrade[d.grade] = poolByGrade[d.grade] || []).push(d.id);
   }
@@ -1725,9 +1729,10 @@ function openCraftBag(){
     const code = picked.length ? String(Number(picked.join(""))).padStart(3,"0") : "";
     const div = modalShell(`<h3>🧰 合成宝袋</h3>
       <div class="msub">点数字放到上面，凑满 3 位即可合成编号为 <b style="color:var(--gold)">${code || "—"}</b> 的道具。</div>
-      <div style="font-size:26px;letter-spacing:10px;color:var(--gold);text-align:center;margin:10px 0 6px;min-height:34px">
-        ${picked.length ? picked.join(" ") : "— — —"}
+      <div id="bag-picked" style="font-size:26px;letter-spacing:10px;color:var(--gold);text-align:center;margin:10px 0 6px;min-height:34px">
+        ${picked.length ? picked.map((v,i)=>`<span data-p="${i}" style="cursor:pointer">${v}</span>`).join(" ") : "— — —"}
       </div>
+      <div style="font-size:10.5px;color:var(--dim);text-align:center;margin:-4px 0 8px">左键添加 · 右键收回</div>
       <div style="display:flex;flex-wrap:wrap;justify-content:center;max-height:190px;overflow:auto">${chips}</div>
       <div class="modal-close" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
         <button class="btn" id="bag-make" ${picked.length === 3 ? "" : "disabled"}>合 成</button>
@@ -1735,11 +1740,23 @@ function openCraftBag(){
         <button class="btn ghost" id="bag-close">关 闭</button>
       </div>`);
     div.querySelectorAll("[data-v]").forEach(btn => {
+      const v = Number(btn.dataset.v);
+      // 左键：放一个进来
       btn.onclick = () => {
         if (picked.length >= 3) return;
-        picked.push(Number(btn.dataset.v));
+        picked.push(v);
         render();
       };
+      // 右键：收回一个（放回袋子里）
+      btn.oncontextmenu = (e) => {
+        e.preventDefault();
+        const i = picked.indexOf(v);
+        if (i >= 0){ picked.splice(i, 1); render(); }
+      };
+    });
+    div.querySelectorAll("[data-p]").forEach(sp => {
+      sp.oncontextmenu = (e) => { e.preventDefault(); picked.splice(Number(sp.dataset.p), 1); render(); };
+      sp.onclick = () => { picked.splice(Number(sp.dataset.p), 1); render(); };
     });
     const mk = div.querySelector("#bag-make");
     if (mk) mk.onclick = () => {
@@ -1855,19 +1872,23 @@ function makeEnemy(n){
   };
 }
 
-function startBattle(n){
+function startBattle(idx, elite){
+  S.battleElite = !!elite;
   S.battleDmg = 0;   // 单场累计伤害
   S.awaitingContinue = false;
-  const enemy = makeEnemy(n);
+  const enemy = makeEnemy(idx);
+  if (elite){ enemy.hp = Math.round(enemy.hp * 1.6); enemy.maxHp = enemy.hp; enemy.elite = true; }
+  if (elite) enemy.elite = true;
   const axeNow = false;
   S.battle = {
     enemy, round: 1, attacksLeft: stats().attackCount, skipped: 0,
+    elite: !!elite,
     phase: "player", over: false, overflow: 0, dmgDealt: 0,
     flags: {}, temp: {}, roundTemp: {}, attackNo: 0,
     pending: null, rerollUsed: false, lastFormula: null, lastRoll: null,
   };
   S.busy = false;
-  log(`⚔️ 第 ${n} 层 —— ${enemy.name} 出现（${enemy.hp} 点血量）`, "sys");
+  log(`⚔️ 第 ${idx} 层 —— ${enemy.name} 出现（${enemy.hp} 点血量）`, "sys");
   // 黑客：不是启动，开场直接把敌人血量压到 5 的倍数
   // 黑客在开战时统一处理（见 hackerCheck）
   // 被背刺/利斧削到 0 血：直接判胜，不进入战斗
@@ -2487,6 +2508,7 @@ function winBattle(overflow){
     if (S.pendingDeath && S.hp <= 0){ gameOver(); return; }
     if (S.pendingDeath){ gameOver(); return; }
     if (S.depth >= lastFloor()){ victory(); return; }
+    if (S.battleElite){ S.battleElite = false; addLog("精英敌人掉落了宝箱！","good"); openChest(); return; }
     if (S.autoNext){
       advanceNode();                      // 自动：直接前往下一个节点
     } else {
@@ -2640,6 +2662,8 @@ function buildMap(){
       if (id === combatId){
         nodes[id].type = "enemy";
         nodes[id].idx = ++enemyNo;
+        // 精英：前 3 行不生成，其余 20% 概率
+        if (r >= 3 && !isLast && rnd() < 0.2) nodes[id].elite = true;
       } else {
         nodes[id].type = nonCombat();
       }
@@ -2828,6 +2852,18 @@ function newRun(charKey, seed){
 let grantDepth = 0;
 
 /* 合同：持有期间，道具库里编号 1~28 的道具会被改写成对应角色的能力（-1 ~ -28） */
+
+/* 显示用的道具定义：持有合同时，1~28 号显示成对应角色的能力 */
+function shownDef(id){
+  const n = Number(id);
+  if (n >= 1 && n <= CHARS.length && S.items &&
+      S.items.some(i => i.def && i.def.id === -30 && !i.spent)){
+    const ab = ITEM_BY_ID.get(-n);
+    if (ab) return ab;
+  }
+  return ITEM_BY_ID.get(n);
+}
+
 function contractRewrite(id){
   const n = Number(id);
   if (!(n >= 1 && n <= CHARS.length)) return id;
@@ -3692,12 +3728,14 @@ function renderMap(){
     const cells = row.map(id => {
       const n = S.map[id];
       const meta = NODE_META[n.type] || NODE_META.event;
+      if (n.elite) meta.lbl = () => "精英";
       const base = doneSet.has(id) ? "done" : (reachSet.has(id) ? "now" : "future");
       // 已经走过但没选的分支：在当前行之上，且既不是已通过也不是可进入 → 画红叉
       const state = (base === "future" && curRow >= 0 && n.row < curRow) ? "dead" : base;
       const canClick = reachSet.has(id);
-      const mark = state === "dead" ? `<span class="nx">✕</span>` : "";
-      return `<div class="node ${state}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
+      const mark = (state === "dead" ? `<span class="nx">✕</span>` : "") +
+                   (n.elite ? `<span class="fire">🔥</span>` : "");
+      return `<div class="node ${state} ${n.elite ? "elite" : ""}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
         ${meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : meta.lbl(n))}</span>${mark}
       </div>`;
     }).join(`<div class="branch-gap"></div>`);
@@ -3748,7 +3786,7 @@ function enterNode(id){
   if (!(S.reach || []).includes(id)) return;
   if (S.nodeIdx >= 0 && !(S.mapDone || []).includes(S.nodeIdx)) S.mapDone = (S.mapDone || []).concat([S.nodeIdx]);
   S.nodeIdx = id;
-  if (node.type === "enemy") startBattle(node.idx);
+  if (node.type === "enemy") startBattle(node.idx, !!node.elite);
   else if (node.type === "chest") enterChest();
   else if (node.type === "shop") enterShop();
   else if (node.type === "campfire") enterCampfire();
@@ -4107,7 +4145,7 @@ function playerSkip(){
 /* ---------- 宝箱 ---------- */
 function renderLoot(){
   const L = S.loot;
-  const d = ITEM_BY_ID.get(L.itemId);
+  const d = shownDef(L.itemId);
   const st = stats();
   $("#screen-loot").innerHTML = `
     <div class="center-col">
@@ -4208,7 +4246,7 @@ function renderShop(){
   while (sh.stock.length > want && sh.stock[sh.stock.length-1].sold) sh.stock.pop();
   const st = stats();
   const cards = sh.stock.map((slot, i) => {
-    const d = ITEM_BY_ID.get(slot.id);
+    const d = shownDef(slot.id);
     const price = slotPrice(slot, d);
     const afford = canPay(price);
     const basePrice = listPriceOf(d);
