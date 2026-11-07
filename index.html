@@ -3344,6 +3344,7 @@ function openMenu(){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
       <button class="btn ghost block" onclick="openRules()">玩 法 说 明</button>
+      <button class="btn ghost block" onclick="openAccount()">☁️ 账 号 / 云 存 档</button>
       <button class="btn ghost block" onclick="startTutorial()">新 手 教 程</button>
       <button class="btn ghost block" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost block" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
@@ -3975,6 +3976,253 @@ function maybeTutorialPrompt(){
   if (no) no.onclick = () => { closeModal(); markTutorialSeen(); };
 }
 
+
+/* ============================================================
+   账号 + 云存档（Supabase Auth + REST）
+   把下面两项填成你的 Supabase 项目即可启用
+   ============================================================ */
+const CLOUD = {
+  url: "",          // 例：https://abcdefg.supabase.co
+  key: "",          // Project Settings → API → anon public
+  table: "saves",
+};
+
+function cloudReady(){ return !!(CLOUD.url && CLOUD.key); }
+
+/* ---------------- 会话 ---------------- */
+function sessGet(){
+  try { return JSON.parse(localStorage.getItem("rk4_session") || "null"); } catch(e){ return null; }
+}
+function sessSet(v){
+  try { v ? localStorage.setItem("rk4_session", JSON.stringify(v)) : localStorage.removeItem("rk4_session"); } catch(e){}
+}
+function account(){
+  const s = sessGet();
+  return (s && s.user) ? s.user : null;
+}
+function accessToken(){
+  const s = sessGet();
+  return s ? s.access_token : null;
+}
+
+function authHeaders(){
+  return {
+    "apikey": CLOUD.key,
+    "Authorization": "Bearer " + (accessToken() || CLOUD.key),
+    "Content-Type": "application/json",
+  };
+}
+
+async function authRequest(path, body){
+  const r = await fetch(CLOUD.url + "/auth/v1" + path, {
+    method: "POST",
+    headers: { "apikey": CLOUD.key, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.msg || j.error_description || j.error || ("HTTP " + r.status));
+  return j;
+}
+
+async function doSignUp(email, password){
+  const j = await authRequest("/signup", { email, password });
+  if (j.access_token){
+    sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user });
+    return { ok: true, verified: true };
+  }
+  // 项目开了邮箱验证时，这里不会有 token
+  return { ok: true, verified: false };
+}
+
+async function doSignIn(email, password){
+  const j = await authRequest("/token?grant_type=password", { email, password });
+  sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user });
+  return j.user;
+}
+
+function doSignOut(){
+  sessSet(null);
+  closeModal();
+  renderTitle && renderTitle();
+  afterStateChange();
+  openAccount();
+}
+
+/* ---------------- 云存档 ---------------- */
+function saveBlob(){
+  const out = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (k && k.indexOf("rk4_") === 0 && k !== "rk4_session") out[k] = localStorage.getItem(k);
+    }
+  } catch(e){}
+  return out;
+}
+
+function applyBlob(data){
+  if (!data) return false;
+  try {
+    for (const k in data){ if (k.indexOf("rk4_") === 0) localStorage.setItem(k, data[k]); }
+    return true;
+  } catch(e){ return false; }
+}
+
+async function cloudUpload(silent){
+  if (!cloudReady() || !account()){ if(!silent) log("云存档：还没登录。","sys"); return false; }
+  const u = account();
+  const body = JSON.stringify([{ user_id: u.id, data: saveBlob(), updated_at: new Date().toISOString() }]);
+  try {
+    const r = await fetch(`${CLOUD.url}/rest/v1/${CLOUD.table}?on_conflict=user_id`, {
+      method: "POST",
+      headers: Object.assign(authHeaders(), { "Prefer": "resolution=merge-duplicates,return=minimal" }),
+      body,
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    try { localStorage.setItem("rk4_cloud_last", String(Date.now())); } catch(e){}
+    if (!silent) log("云存档：已上传。","good");
+    return true;
+  } catch(e){
+    if (!silent) log("云存档：上传失败（"+e.message+"）","hurt");
+    return false;
+  }
+}
+
+async function cloudFetchMine(){
+  if (!cloudReady() || !account()) return null;
+  const u = account();
+  try {
+    const r = await fetch(`${CLOUD.url}/rest/v1/${CLOUD.table}?user_id=eq.${encodeURIComponent(u.id)}&select=*`, {
+      headers: authHeaders(),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const arr = await r.json();
+    return arr && arr[0] ? arr[0] : null;
+  } catch(e){
+    log("云存档：读取失败（"+e.message+"）","hurt");
+    return null;
+  }
+}
+
+async function cloudDownload(silent){
+  if (!cloudReady()) return false;
+  if (!account()){ if (!silent) log("云存档：先登录。","sys"); return false; }
+  const row = await cloudFetchMine();
+  if (!row){ if (!silent) log("云存档：云端还没有存档（先上传一次）。","sys"); return false; }
+  if (applyBlob(row.data)){
+    if (!silent) log("云存档：已下载，正在刷新…","good");
+    setTimeout(() => location.reload(), 500);
+    return true;
+  }
+  return false;
+}
+
+/* 登录后：云端有就下载，没有就把本地推上去 */
+async function cloudSyncAfterLogin(){
+  if (!cloudReady()) return;
+  const row = await cloudFetchMine();
+  if (row && row.data && Object.keys(row.data).length){
+    const remote = Date.parse(row.updated_at || 0) || 0;
+    const local = parseInt(localStorage.getItem("rk4_cloud_last") || "0", 10) || 0;
+    if (remote > local){
+      if (applyBlob(row.data)){
+        log("云存档：已同步账号进度。","good");
+        setTimeout(() => location.reload(), 400);
+        return;
+      }
+    }
+  }
+  await cloudUpload(true);
+}
+
+let cloudTimer = null;
+function cloudTouch(){
+  if (!cloudReady() || !account()) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => cloudUpload(true), 8000);
+}
+
+/* ---------------- 界面 ---------------- */
+function openAccount(){
+  if (!cloudReady()){
+    modalShell(`<h3>☁️ 账号</h3>
+      <div class="msub">云服务还没配置。</div>
+      <div class="md">把 <b>index.html</b> 里 CLOUD.url 与 CLOUD.key 填成你的 Supabase 项目（Project Settings → API）就能启用注册/登录与云存档。</div>
+      <div class="modal-close"><button class="btn" onclick="closeModal()">关 闭</button></div>`);
+    return;
+  }
+  const u = account();
+  if (u){
+    const last = parseInt(localStorage.getItem("rk4_cloud_last") || "0", 10);
+    modalShell(`<h3>☁️ 账号</h3>
+      <div class="msub">已登录：<b>${esc(u.email || u.id)}</b></div>
+      <div class="seed-hint">上次上传：${last ? new Date(last).toLocaleString("zh-CN") : "从未上传"}</div>
+      <div style="display:flex;gap:8px;margin:12px 0">
+        <button class="btn block" onclick="cloudUpload(false)">上 传</button>
+        <button class="btn block" onclick="cloudDownload(false)">下 载</button>
+      </div>
+      <button class="btn ghost block" onclick="doSignOut()">退 出 登 录</button>
+      <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
+    return;
+  }
+  modalShell(`<h3>☁️ 注册 / 登录</h3>
+    <div class="msub">登录后进度会存到云端，换设备登录同一个账号即可继续。</div>
+    <input id="acc-email" class="codex-search" type="email" placeholder="邮箱" style="margin-top:10px;width:100%">
+    <input id="acc-pass" class="codex-search" type="password" placeholder="密码（至少 6 位）" style="margin-top:8px;width:100%">
+    <div id="acc-msg" class="seed-hint" style="min-height:16px"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn block" id="acc-login">登 录</button>
+      <button class="btn ghost block" id="acc-reg">注 册</button>
+    </div>
+    <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
+  bindAccountButtons();
+}
+
+function bindAccountButtons(){
+  const email = () => (document.getElementById("acc-email").value || "").trim();
+  const pass  = () => (document.getElementById("acc-pass").value || "");
+  const msg = (t, bad) => {
+    const el = document.getElementById("acc-msg");
+    if (el){ el.textContent = t; el.style.color = bad ? "#e8524b" : "#57c99b"; }
+  };
+  const busy = (on) => {
+    ["acc-login","acc-reg"].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = on; });
+  };
+
+  const login = document.getElementById("acc-login");
+  if (login) login.onclick = async () => {
+    if (!email() || !pass()){ msg("请填写邮箱和密码", true); return; }
+    busy(true); msg("登录中…");
+    try {
+      await doSignIn(email(), pass());
+      msg("登录成功");
+      closeModal();
+      await cloudSyncAfterLogin();
+      afterStateChange();
+      openAccount();
+    } catch(e){ msg("登录失败：" + e.message, true); busy(false); }
+  };
+
+  const reg = document.getElementById("acc-reg");
+  if (reg) reg.onclick = async () => {
+    if (!email() || pass().length < 6){ msg("密码至少 6 位", true); return; }
+    busy(true); msg("注册中…");
+    try {
+      const r = await doSignUp(email(), pass());
+      if (r.verified){
+        msg("注册成功");
+        closeModal();
+        await cloudSyncAfterLogin();
+        afterStateChange();
+        openAccount();
+      } else {
+        msg("注册成功，请先去邮箱点确认链接，再回来登录", false);
+        busy(false);
+      }
+    } catch(e){ msg("注册失败：" + e.message, true); busy(false); }
+  };
+}
+
 function afterStateChange(){
   checkAchievements();
   renderHUD();
@@ -3983,6 +4231,7 @@ function afterStateChange(){
   else if (S.screen === "shop") renderShop();
   else if (S.screen === "loot") renderLoot();
   if (S.tutorial) tutHint();
+  try { cloudTouch(); } catch(e){}
 }
 
 /* ---------- 战斗 ---------- */
