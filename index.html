@@ -3803,7 +3803,7 @@ function renderMap(){
       const mark = (state === "dead" ? `<span class="nx">✕</span>` : "") +
                    (n.elite ? `<span class="fire">🔥</span>` : "");
       return `<div class="node ${state} ${isElite ? "elite" : ""}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
-        ${isElite ? "🔥" : meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : nodeLabel)}</span>${mark}
+        ${meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : nodeLabel)}</span>${mark}
       </div>`;
     }).join(`<div class="branch-gap"></div>`);
     return `<div class="node-row branch-row">${r>0 ? `<div class="connector ${row.some(id=>reachSet.has(id))?'done':''}"></div>` : ""}
@@ -4335,6 +4335,7 @@ const CHANGELOG = [
       "修复：火堆等非战斗节点偶尔被改成战斗/精英节点（去掉了会改写节点类型的补偿逻辑）",
       "修复：567 的「每通过一个节点 +1 刀片」没有触发",
       "控制台改为打开全量挑选界面：普通道具、负编号道具、角色能力都能选",
+      "修复：精英战斗节点的图标被显示成火堆（现在保持剑图标，只保留头顶火苗）",
     ],
   },
   {
