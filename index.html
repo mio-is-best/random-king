@@ -1641,24 +1641,30 @@ const EXTRA_ITEMS = [
 
   D(-31,"合成宝袋",2,"功能类","主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
     use:(a)=>{ openCraftBag(); }}),
-  D(-32,"贪食无人机",2,"攻击类","每回合造成 a 次 b 伤害（初始 1 次 3 点）。主动：移除一件道具，选择 a+1 或 b+3。",{icon:"🛸",draw:false,
-    use:(a)=>{
-      if (!S.items.some(i => i.uid !== a.uid && !i.spent)){ log("无人机：没有可以吃掉的道具。","sys"); return; }
-      pickOwned("贪食无人机 · 吃掉哪件道具", (uid)=>{
-        if (uid == null) return;
-        destroyItem(uid);
-        chooseOne("无人机成长", "选择强化方向", ["攻击次数 a +1", "单次伤害 b +3"], (idx)=>{
-          if (idx === 0) S.droneA = (S.droneA||1) + 1;
-          else S.droneB = (S.droneB||3) + 3;
-          log(`无人机：a=${S.droneA||1}，b=${S.droneB||3}`,"item");
+  D(-32,"贪食无人机",2,"攻击类","每回合造成 a 次 b 点伤害。主动：吃掉一件自己的道具，让 a+1 或 b+3。",{icon:"🛸",draw:false,
+  dynDesc:()=>`每回合造成 ${S.droneA||1} 次 ${S.droneB||3} 点伤害。主动：吃掉一件道具，a+1 或 b+3。`,
+  hooks:{onRoundStart:(c,a)=>{
+    const times = S.droneA || 1, dmg = S.droneB || 3;
+    for (let i=0;i<times;i++) a.strike(dmg, "贪食无人机");
+  }},
+  use:(a)=>{
+    if (!S.items.some(i => i.uid !== a.item.uid && !i.spent)){
+      log("无人机：没有可以吃掉的道具。","sys"); return false;
+    }
+    a.pickOwned("贪食无人机 · 吃掉哪件道具", (uid)=>{
+      if (uid == null) return;
+      destroyItem(uid);
+      a.choose("无人机成长", "选择强化方向",
+        [{name:`攻击次数 a +1（当前 ${S.droneA||1} 次）`, desc:"每回合多打一下", icon:"🔁"},
+         {name:`单次伤害 b +3（当前 ${S.droneB||3} 点）`, desc:"每下多 3 点伤害", icon:"💢"}],
+        (o, i)=>{
+          if (i === 0) S.droneA = (S.droneA || 1) + 1;
+          else S.droneB = (S.droneB || 3) + 3;
+          log(`无人机：a=${S.droneA||1}，b=${S.droneB||3}`,"good");
         });
-      });
-    },
-    hooks:{onRoundStart:(c,a)=>{
-      const times = S.droneA || 1, dmg = S.droneB || 3;
-      for (let i=0;i<times;i++) a.strike(dmg, "贪食无人机");
-    }}}),
-  D(-33,"赌命",3,"功能类","死亡时以 [0,15] 血复活，变成 0 血复活时本关暂时失效。",{icon:"🎲",draw:false,
+    }, (it) => it.uid !== a.item.uid);
+  }}),
+D(-33,"赌命",3,"功能类","死亡时以 [0,15] 血复活，变成 0 血复活时本关暂时失效。",{icon:"🎲",draw:false,
     hooks:{onLethal:(c,a)=>{
       if (!a.once("gambleUsed")) return;
       const v = ri(0,15);
@@ -1676,13 +1682,14 @@ function bagDigits(){
 }
 /* 得到道具时，把编号拆成 3 位数字存进袋子（如 1 -> 0,0,1） */
 function bagStoreItem(id){
-  if (!S.items.some(i => i.def.id === -31 && !i.spent)) return;
+  if (!S.items.some(i => i.def.id === -31 && !i.spent)) return false;
   const n = Math.abs(Math.trunc(Number(id) || 0));
   const str = String(n).padStart(3, "0").slice(-3);
   const bag = bagDigits();
   for (const ch of str) bag.push(Number(ch));
   // 袋子最多存 30 个数字，防止无限堆积
   while (bag.length > 30) bag.shift();
+  return true;
 }
 
 function openCraftBag(){
@@ -1693,48 +1700,61 @@ function openCraftBag(){
       <div class="modal-close"><button class="btn" onclick="closeModal()">关 闭</button></div>`);
     return;
   }
-  let picked = [];       // 选中数字的下标
+  let picked = [];   // 选中的数字「值」列表，最多 3 个
+
   const render = () => {
-    const chips = bag.map((d, i) => {
-      const on = picked.includes(i);
-      return `<button class="btn sm" data-i="${i}" style="min-width:44px;margin:4px;${on ? "background:linear-gradient(180deg,#f2d98f,#c9a24a);color:#1a1206;border-color:#f0d78f" : ""}">${d}</button>`;
+    // 统计剩余可用数量（扣掉已选中的）
+    const used = {};
+    picked.forEach(v => { used[v] = (used[v] || 0) + 1; });
+    const groups = {};
+    bag.forEach(v => { groups[v] = (groups[v] || 0) + 1; });
+    const chips = Object.keys(groups).map(Number).sort((a,b)=>a-b).map(v => {
+      const left = groups[v] - (used[v] || 0);
+      if (left <= 0) return "";
+      return `<button class="btn sm" data-v="${v}" style="position:relative;min-width:46px;margin:5px">
+        ${v}${left > 1 ? `<span style="position:absolute;right:-4px;bottom:-4px;background:#e8c46a;color:#1a1206;
+          border-radius:999px;font-size:9px;padding:0 4px;font-weight:800">${left}</span>` : ""}</button>`;
     }).join("");
-    const code = String(picked.length ? picked.map(i => bag[i]).join("") : "").padStart(3, "0");
+    const code = picked.length ? String(Number(picked.join(""))).padStart(3,"0") : "";
     const div = modalShell(`<h3>🧰 合成宝袋</h3>
-      <div class="msub">点数字放到上面，凑满 3 位即可合成编号为 <b style="color:var(--gold)">${code}</b> 的道具。</div>
-      <div style="font-size:26px;letter-spacing:8px;color:var(--gold);text-align:center;margin:10px 0 6px;min-height:34px">
-        ${picked.length ? picked.map(i => bag[i]).join(" ") : "— — —"}
+      <div class="msub">点数字放到上面，凑满 3 位即可合成编号为 <b style="color:var(--gold)">${code || "—"}</b> 的道具。</div>
+      <div style="font-size:26px;letter-spacing:10px;color:var(--gold);text-align:center;margin:10px 0 6px;min-height:34px">
+        ${picked.length ? picked.join(" ") : "— — —"}
       </div>
-      <div style="display:flex;flex-wrap:wrap;justify-content:center;max-height:180px;overflow:auto">${chips}</div>
-      <div class="modal-close" style="display:flex;gap:8px;justify-content:center">
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;max-height:190px;overflow:auto">${chips}</div>
+      <div class="modal-close" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
         <button class="btn" id="bag-make" ${picked.length === 3 ? "" : "disabled"}>合 成</button>
         <button class="btn ghost" id="bag-clear">重 选</button>
-        <button class="btn ghost" onclick="closeModal()">关 闭</button>
+        <button class="btn ghost" id="bag-close">关 闭</button>
       </div>`);
-    div.querySelectorAll("[data-i]").forEach(btn => {
+    div.querySelectorAll("[data-v]").forEach(btn => {
       btn.onclick = () => {
-        const i = Number(btn.dataset.i);
-        if (picked.includes(i)) picked = picked.filter(x => x !== i);
-        else if (picked.length < 3) picked.push(i);
+        if (picked.length >= 3) return;
+        picked.push(Number(btn.dataset.v));
         render();
       };
     });
     const mk = div.querySelector("#bag-make");
     if (mk) mk.onclick = () => {
       if (picked.length !== 3) return;
-      const num = Number(picked.map(i => bag[i]).join(""));
-      const target = ITEMS.find(it => it.id === num);
+      const num = Number(picked.join(""));
+      const target = ITEMS.find(it => it.id === num && it.grade >= 0);
       if (!target){ log(`袋子：没有编号 ${num} 的道具。`,"sys"); return; }
-      // 消耗这三个数字（按下标从大到小删，避免错位）
-      [...picked].sort((a,b)=>b-a).forEach(i => bag.splice(i,1));
+      // 从袋子里删掉对应的三个数字（按值删，各删一个）
+      for (const v of picked){
+        const idx = bag.indexOf(v);
+        if (idx >= 0) bag.splice(idx, 1);
+      }
       picked = [];
-      addItem(target.id);
-      log(`合成宝袋：合成了「${target.name}」。`,"item");
+      grantItem(target.id, { fromBag:true });
+      log(`合成宝袋：合成了「${target.name}」。`,"good");
       closeModal();
       afterStateChange();
     };
     const cl = div.querySelector("#bag-clear");
     if (cl) cl.onclick = () => { picked = []; render(); };
+    const cs = div.querySelector("#bag-close");
+    if (cs) cs.onclick = () => closeModal();
   };
   render();
 }
@@ -2837,8 +2857,15 @@ function grantItem(id, opts={}){
     addLog(`血量上限 +${hpMaxAfter - hpMaxBefore}，同时回复等量血量（${S.hp}/${hpMaxAfter}）`, "good");
   }
   if (grantDepth > 8) return it;
-  // 合成宝袋：把编号拆成 3 个数字存进去
-  try { bagStoreItem(id); } catch(e){}
+  // 合成宝袋：把编号拆成 3 个数字存进去（宝袋自己给的道具除外）
+  if (!opts.fromBag && id > 0 && id !== 299){
+    try {
+      if (bagStoreItem(id)){
+        // 里该隐：道具直接被袋子吃掉，不留在身上
+        destroyItem(it.uid);
+      }
+    } catch(e){}
+  }
   grantDepth++;
   try {
     if (def.hooks && def.hooks.onAcquire){
