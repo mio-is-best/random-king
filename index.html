@@ -936,8 +936,8 @@ D(93,"临死反扑",2,"攻击类","受到致命伤时免疫并立即反击两次
   hooks:{onLethal:(c,a)=>{ if(!a.once("deathblow")) return; c.saved=true; c.hpAfter=1; a.strike(10,"临死反扑"); a.strike(10,"临死反扑"); }}}),
 D(98,"犹大",2,"功能类","减伤 +2，减伤全部转化为加伤。",{icon:"🪙",mods:{reduceDmg:2},
   dyn:(st)=>{ if (st.reduceDmg){ st.addDmg += st.reduceDmg; st.reduceDmg = 0; } }}),
-D(114,"神之血",2,"防御类","血量 +30，可以超过血量上限。",{icon:"🧪",
-  hooks:{onAcquire:()=>{ S.hp+=30; }}}),
+D(114,"神之血",2,"防御类","一次性：血量 +30，可以超过血量上限。",{icon:"🧪",kind:"oneshot",
+  use:()=>{ S.hp += 30; log("神之血：血量 +30","good"); }}),
 D(139,"黑市",2,"经济类","价格 +1。主动：随时开启商店（每个节点一次）。",{icon:"🌑",mods:{shopDisc:-1},
   use:(a)=>{ if(S.itemShopNode === S.nodeIdx){ log("这个节点已经用过商店了。","sys"); return false; }
              S.itemShopNode = S.nodeIdx; a.openShop(); }}),
@@ -1192,8 +1192,8 @@ D(347,"天国神光",4,"攻击类","一次性：先给敌人增加 300 万血量
              a.strike(3000050,"天国神光"); return true; }}),
 D(357,"皇帝",4,"功能类","你拥有的 4 级道具（皇帝自己不算）每有一件，伤害倍率翻倍一次：一件 ×2、两件 ×4、三件 ×6。",{icon:"👑",
   dyn:(st)=>{ const n=S.items.filter(i=>i.def.grade===4&&i.def.id!==357&&!i.spent).length; if(n>0) st.mult *= 2*n; }}),
-D(363,"王后",4,"功能类","你拥有的每 3 个 3 级道具（除王后外）将给予伤害 +3。",{icon:"👸",
-  dyn:(st)=>{ const n=S.items.filter(i=>i.def.grade===3&&i.def.id!==363).length; st.addDmg+=3*Math.floor(n/3); }}),
+D(363,"王后",4,"功能类","你拥有的每个 3 级道具（除王后外）给予伤害 +3。",{icon:"👸",
+  dyn:(st)=>{ const n=S.items.filter(i=>i.def.grade===3&&i.def.id!==363).length; st.addDmg+=3*n; }}),
 D(382,"真正的刀",4,"攻击类","伤害最大值 +10。",{icon:"🗡️",mods:{maxDmg:10}}),
 D(389,"双面",4,"防御类","每有 20 血量 +2 减伤。",{icon:"🃏",
   dyn:(st)=>{ st.reduceDmg+=2*Math.floor(S.hp/20); }}),
@@ -1280,13 +1280,15 @@ D(77,"日历",4,"攻击类","伤害 +（今天的日期个位数）。",{icon:"�
   dyn:(st)=>{ st.addDmg += new Date().getDate() % 10; }}),
 D(82,"浮游炮",4,"攻击类","攻击前，伤害 +[0,8]。",{icon:"🛰️",
   hooks:{onAttackWindup:(c)=>{ const n=ri(0,8); c.bonus=(c.bonus||0)+n; c.steps.push(`+${n} 浮游炮`); }}}),
-D(84,"啊？我打 400 血真的假的",0,"功能类","一次性：传送至第 12 关开头。",{icon:"🌀",kind:"oneshot",
-  use:(a)=>{ const target = S.map.find(n => n.type === "enemy" && n.idx === TOTAL_FLOORS);
+D(84,"啊？我打 400 血真的假的",0,"功能类","一次性：传送到最后一个战斗节点门口。",{icon:"🌀",kind:"oneshot",
+  use:(a)=>{
+    const last = lastFloor();
+    const target = S.map.find(n => n.type === "enemy" && n.idx === last);
     if(!target) return false;
     S.nodeIdx = -1;
     S.reach = [target.id];
-    S.depth = Math.max(S.depth, TOTAL_FLOORS - 1);
-    log(`传送！你落在了第 ${TOTAL_FLOORS} 关的入口。`,"good");
+    S.depth = Math.max(S.depth, last - 1);
+    log(`传送！你落在了第 ${last} 关的入口。`,"good");
     showScreen("map"); renderMap(); }}),
 D(87,"负债",1,"经济类","主动：借钱，下一关结束时以 2 倍扣除。金币为负时不能再借。",{icon:"🏦",
   use:(a)=>{ if (S.gold < 0){ log("负债：已经欠钱了，不能再借。","sys"); return false; }
@@ -1318,12 +1320,16 @@ D(104,"以旧换新原型机",3,"功能类","主动：移除一件道具，并�
       if (got) got.fromProto = true;      // 它给的道具不能再被它自己移除
     }
   }, (it)=> !it.fromProto)}),
-D(105,"自选礼包",3,"功能类","获得时挑选一个 0~2 级道具。",{icon:"🎀",
-  hooks:{onAcquire:(c,a)=>{ a.pick(0,2,(id)=>a.addItem(id),"自选礼包 · 挑选道具"); }}}),
+D(105,"自选礼包",3,"功能类","一次性：挑选一个 0~2 级道具。",{icon:"🎀",kind:"oneshot",
+  use:(a)=>{ a.pick(0,2,(id)=>a.addItem(id),"自选礼包 · 挑选道具"); }}),
 D(107,"自选礼包工",4,"功能类","一次性：挑选一个 0~3 级道具。",{icon:"🎁",kind:"oneshot",
   use:(a)=>{ a.pick(0,3,(id)=>a.addItem(id),"自选礼包工 · 挑选道具"); }}),
-D(110,"恶魔号",4,"功能类","一次性：获得一件随机负面（0 级）道具。",{icon:"😈",kind:"oneshot",
-  use:(a)=>{ const d=randomItemDef(0,0); if(d){ a.addItem(d.id); log(`恶魔号：${d.name}`,"hurt"); } }}),
+D(110,"负编号",4,"功能类","一次性：获得一件随机负编号道具。",{icon:"➖",kind:"oneshot",
+  use:(a)=>{
+    const pool = ITEMS.filter(i => i.id < 0 && i.id !== 110 && !i.draw === false && i.id <= -30);
+    const pick = pool.length ? pool[ri(0, pool.length - 1)] : null;
+    if (pick){ a.addItem(pick.id); log(`负编号：获得「${pick.name}」`,"item"); }
+  }}),
 D(119,"禁锢",0,"防御类","血量上限 +50，不能回血。",{icon:"🔒",mods:{hpMax:50,noHeal:true}}),
 D(140,"礼品",2,"经济类","每销毁一件道具，金币 +5。",{icon:"🎁",
   hooks:{onConsume:(c,a)=>{ a.gold(5); }}}),
@@ -1462,7 +1468,7 @@ D(36,"虚空",4,"功能类","主动：移除一件道具，移除时永久 +2 �
   use:(a)=> a.pickOwned("虚空 · 移除道具",(uid)=>{ a.removeItem(uid); a.perm("addDmg",2); a.perm("hpMax",5); })}),
 D(61,"垃圾制造",4,"功能类","启动：挑选一个 0~2 级道具。",{icon:"🗑️",
   hooks:{onBattleStart:(c,a)=>{ a.pick(0,2,(id)=>a.addItem(id),"垃圾制造 · 挑选道具"); }}}),
-D(66,"无畏圣心",4,"功能类","属性不会再下降。",{icon:"💗",
+D(66,"无瑕圣心",4,"功能类","属性不会再下降。",{icon:"💗",
   hooks:{onAcquire:()=>{ S.noDecrease=true; }}}),
 D(205,"舅产",4,"功能类","获得时从 21 件指定道具中随机获得一个。",{icon:"🏹",
   hooks:{onAcquire:(c,a)=>{
@@ -1616,7 +1622,7 @@ const ABILITY_ITEMS = [
     dyn:(st)=>{ st.addDmg += Math.floor(Math.max(0,(S.perm.hpMax||0))/5); },
     hooks:{onBattleStart:(c,a)=>{ a.addItem(114); }}}),
   D(-24,"角色能力 · 机械师",-1,"功能类","伤害 +1，获得贪食无人机和一个随机道具。",{icon:"🔧",draw:false,mods:{addDmg:1},
-    hooks:{onAcquire:(c,a)=>{ a.addItem(-32); a.pick(0,4,(id)=>a.addItem(id),"机械师 · 随机道具"); }}}),
+    hooks:{onAcquire:(c,a)=>{ a.addItem(-32); const d=a.draw(0,4); if(d) a.addItem(d.id); }}}),
   D(-25,"角色能力 · 养成者",-1,"功能类","伤害 +1，每拥有一颗星再 +1。",{icon:"🌱",draw:false,mods:{addDmg:1},
     dyn:(st)=>{ let n=0; try{ const o=JSON.parse(localStorage.getItem("rk4_stars")||"{}"); n=o[(S.char&&S.char.key)||""]||0; }catch(e){} st.addDmg += n; }}),
   D(-26,"角色能力 · 里游魂",-1,"功能类","伤害 +3，获得赌命。",{icon:"👤",draw:false,mods:{addDmg:3},
@@ -1917,7 +1923,7 @@ function api(item, st){
     kill: () => { const e = (S.battle && !S.battle.over) ? S.battle.enemy : null;
                   if (!e) return false; e.hp = 0; winBattle(0); return true; },
     perm: (k, n) => {
-      if (S.noDecrease && n < 0) return;        // 无畏圣心：属性不再下降
+      if (S.noDecrease && n < 0) return;        // 无瑕圣心：属性不再下降
       if (k === "mult"){ S.perm.mult = (S.perm.mult ?? 1) * n; }
       else S.perm[k] = (S.perm[k]||0) + n;
       // 血量上限提升时同步回血
@@ -2004,7 +2010,8 @@ function healPlayer(n){
   const amt = Math.round(n * (st.healMult || 1));
   const cap = st.healOvercap ? 9999 : maxHp();
   const before = S.hp;
-  S.hp = Math.min(cap, S.hp + amt);
+  // 已经超过上限的血量保留，只夹「治疗带来的部分」
+  S.hp = Math.max(S.hp, Math.min(cap, S.hp + amt));
   if (S.hp !== before) addLog(`回复 ${S.hp - before} 点血量（${S.hp}/${maxHp()}）`, "good");
 }
 
@@ -2551,7 +2558,8 @@ function buildMap(){
 
   // 行宽：从 1 开始逐行变宽，最多 5 个（岔路越多，行越宽，但不会失控）
   const widths = [1, 2];
-  for (let r = 2; r < floors + 10; r++){
+  // 行数 = 关卡数（每行都有一个战斗节点，最后一行是 BOSS）
+  for (let r = 2; r < floors; r++){
     const grow = rnd();
     let w = widths[r-1] + (grow < 0.42 ? 1 : (grow < 0.90 ? 0 : -1));
     w = Math.max(1, Math.min(8, w));
