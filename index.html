@@ -2063,6 +2063,7 @@ function gainGold(n){
 
 
 function destroyItem(uid){
+  S.cDestroy = (S.cDestroy || 0) + 1;
   const i = S.items.findIndex(x => x.uid === uid);
   if (i >= 0){
     const itm = S.items[i];
@@ -2203,6 +2204,7 @@ function resolveRolledAttack(c){
   }
 
   B.lastFormula = { roll, steps, final: dmg, mult:m, addDmg:st.addDmg };
+  if ((S.maxHit || 0) < dmg) S.maxHit = dmg;
   B.attacksLeft--;
   B.attackNo = (B.attackNo || 0) + 1;
   S.busy = false;
@@ -2337,6 +2339,7 @@ function enemyTurn(){
 
 /* 返回 true 表示被道具救活了 */
 function checkPlayerDeath(){
+  const beforeRevive = S.hp;
   const rc = { saved:false, hpAfter: 0 };
   fireHook("onLethal", rc);
   if (rc.saved){
@@ -2397,6 +2400,8 @@ function hackerCheck(){
 }
 
 function winBattle(overflow){
+  if (S.hp === 1) S.cLow1Win = (S.cLow1Win || 0) + 1;
+  if (S.hp <= 3) S.cLow3Win = (S.cLow3Win || 0) + 1;
   const B = S.battle;
   if (!B || B.over) return;
   B.over = true;
@@ -3314,6 +3319,21 @@ const CHAR_UNLOCK = {
   gangde:    { desc:"解锁死亡证明",              test:() => deathNoteUnlocked() },
   mibao:     { desc:"累计通关 10 次",            test:() => (getRecord().wins || 0) >= 10 },
   wilddog:   { desc:"解锁全部成就",              test:() => ACHIEVEMENTS.every(a => hasAch(a.id)) },
+  rich: { desc:"成就「富有者」", test:() => hasAch("c_rich") },
+  n567: { desc:"成就「567」", test:() => hasAch("c_567") },
+  miner: { desc:"成就「矿工」", test:() => hasAch("c_miner") },
+  tester: { desc:"成就「测试员」", test:() => hasAch("c_tester") },
+  apollyon: { desc:"成就「亚玻伦」", test:() => hasAch("c_apollyon") },
+  boss: { desc:"成就「老板」", test:() => hasAch("c_boss") },
+  cain: { desc:"成就「里该隐」", test:() => hasAch("c_cain") },
+  dreamer: { desc:"成就「追梦旅人」", test:() => hasAch("c_dreamer") },
+  patient: { desc:"成就「病人」", test:() => hasAch("c_patient") },
+  mechanic: { desc:"成就「机械师」", test:() => hasAch("c_mechanic") },
+  grower: { desc:"成就「养成者」", test:() => hasAch("c_grower") },
+  ghost2: { desc:"成就「里游魂」", test:() => hasAch("c_ghost2") },
+  engineer: { desc:"成就「工程师」", test:() => hasAch("c_engineer") },
+  bomber: { desc:"成就「炸弹人」", test:() => hasAch("c_bomber") },
+
 };
 
 function charUnlockStore(){
@@ -3744,6 +3764,8 @@ function useItem(uid){
     }
   }
 
+  S.cActive = (S.cActive || 0) + 1;
+  if (it.def.kind === "oneshot") S.cOneshot = (S.cOneshot || 0) + 1;
   const a = api(it, stats());
   let ok = true;
   try { ok = it.def.use(a, it); } catch(e){ console.error(e); ok = false; }
@@ -4183,6 +4205,20 @@ const ACHIEVEMENTS = [
   { id:"butcher",    name:"屠戮",       desc:"单局击杀 30 名敌人" },
   { id:"deepest",    name:"深渊探索者", desc:"到达第 12 层" },
   { id:"deathnote",  name:"死神之证",   desc:"所有角色各通关 5 次，解锁死亡证明" },
+  { id:"c_rich",     name:"第一桶金",   desc:"单局金币达到 60",                    char:"rich" },
+  { id:"c_567",      name:"刀片如林",   desc:"单局同时持有 4 个刀片",              char:"n567" },
+  { id:"c_miner",    name:"见矿就挖",   desc:"单局拥有 6 件以上道具",              char:"miner" },
+  { id:"c_tester",   name:"压力测试",   desc:"单局使用 3 次主动道具",              char:"tester" },
+  { id:"c_apollyon", name:"一次性的艺术", desc:"单局使用 5 件一次性道具",          char:"apollyon" },
+  { id:"c_boss",     name:"人员管理",   desc:"单局同时拥有 10 件道具",             char:"boss" },
+  { id:"c_cain",     name:"回收站",     desc:"单局销毁 3 件自己的道具",            char:"cain" },
+  { id:"c_dreamer",  name:"梦游者",     desc:"累计击杀 20 名敌人",                 char:"dreamer" },
+  { id:"c_patient",  name:"带病上阵",   desc:"以 1 点血量赢下一场战斗",            char:"patient" },
+  { id:"c_mechanic", name:"装备齐全",   desc:"单局同时拥有 4 件 3 级以上道具",     char:"mechanic" },
+  { id:"c_grower",   name:"星光初现",   desc:"任意角色达到 2 星",                  char:"grower" },
+  { id:"c_ghost2",   name:"命不该绝",   desc:"单局从 1 点血量赢下 2 场战斗",       char:"ghost2" },
+  { id:"c_engineer", name:"火力覆盖",   desc:"单场战斗造成 20 点以上伤害",         char:"engineer" },
+  { id:"c_bomber",   name:"爆破专家",   desc:"单次攻击造成 40 点以上伤害",         char:"bomber" },
 ];
 
 function achStore(){
@@ -4228,6 +4264,22 @@ function checkAchievements(){
     if ((S.totalKills || 0) >= 30) unlockAch("butcher");   // 屠戮：累计 30 杀
     if ((S.depth || 0) >= 12) unlockAch("deepest");
     if (deathNoteUnlocked()) unlockAch("deathnote");
+
+    // ---- 角色解锁成就 ----
+    if (S.gold >= 60) unlockAch("c_rich");
+    if (S.items.filter(i => i.def.id === 58).length >= 4) unlockAch("c_567");
+    if (S.items.length >= 6) unlockAch("c_miner");
+    if ((S.cActive || 0) >= 3) unlockAch("c_tester");
+    if ((S.cOneshot || 0) >= 5) unlockAch("c_apollyon");
+    if (S.items.length >= 10) unlockAch("c_boss");
+    if ((S.cDestroy || 0) >= 3) unlockAch("c_cain");
+    if ((S.totalKills || 0) >= 20) unlockAch("c_dreamer");
+    if ((S.cLow1Win || 0) >= 1) unlockAch("c_patient");
+    if (S.items.filter(i => (i.def.grade || 0) >= 3).length >= 4) unlockAch("c_mechanic");
+    if (maxCharStars() >= 2) unlockAch("c_grower");
+    if ((S.cLow1Win || 0) >= 2) unlockAch("c_ghost2");
+    if ((S.maxHit || 0) >= 20) unlockAch("c_engineer");
+    if ((S.maxHit || 0) >= 40) unlockAch("c_bomber");
   } catch(e){}
 }
 
@@ -4654,11 +4706,15 @@ function openAchievements(){
     <div class="msub">已解锁 ${Object.keys(o).length} / ${ACHIEVEMENTS.length}</div>
     ${ACHIEVEMENTS.map(a => {
       const got = !!o[a.id];
+      const ch = a.char ? CHARS.find(c => c.key === a.char) : null;
+      const tag = ch ? `<div class="md" style="color:${got ? "#8fbf9f" : "var(--gold-dim)"}">
+          解锁角色：${ch.emoji} ${esc(ch.name)}</div>` : "";
       return `<div class="modal-row" style="opacity:${got?1:.45}">
         <div class="mi">${got ? "🏆" : "🔒"}</div>
         <div style="flex:1">
           <div class="mn" style="color:${got ? "var(--gold)" : "#8d849b"}">${esc(a.name)}</div>
           <div class="md">${esc(a.desc)}</div>
+          ${tag}
         </div>
       </div>`;
     }).join("")}
