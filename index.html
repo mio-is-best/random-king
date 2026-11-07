@@ -81,6 +81,10 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+#title-menu-btn{position:fixed;top:14px;right:14px;z-index:40;width:42px;height:42px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--gold);cursor:pointer;
+  background:linear-gradient(180deg,#221c33,#171223);border:1px solid #3a3150;user-select:none}
+#title-menu-btn:hover{border-color:var(--gold)}
 .node.done{opacity:.35;filter:grayscale(.7)}
 .node.dead{opacity:.3;filter:grayscale(1)}
 .node .nx{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
@@ -3281,6 +3285,22 @@ function openStatDetail(key){
 }
 
 /* ---------- 菜单 / 设置（可退出游戏） ---------- */
+
+/* 标题页右上角的菜单 */
+function openTitleMenu(){
+  const u = (typeof account === "function") ? account() : null;
+  modalShell(`<h3>菜 单</h3>
+    <div class="msub">${u ? "已登录：" + esc(u.email || "") : "未登录（进度只存在本机）"}</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+      <button class="btn block" onclick="closeModal(); openAccount()">☁️ 账 号 / 云 存 档</button>
+      <button class="btn ghost block" onclick="closeModal(); openAchievements()">🏆 成 就</button>
+      <button class="btn ghost block" onclick="closeModal(); openCodex()">📖 道 具 图 鉴</button>
+      <button class="btn ghost block" onclick="closeModal(); openRules()">❓ 玩 法 说 明</button>
+      <button class="btn ghost block" onclick="closeModal(); startTutorial()">🎓 新 手 教 程</button>
+    </div>
+    <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
+}
+
 function openMenu(){
   modalShell(`
     <h3>菜 单</h3>
@@ -3596,6 +3616,7 @@ function openSeedSearcher(){
 function renderTitle(){
   $("#hud").classList.remove("on");
   $("#screen-title").innerHTML = `
+    <div id="title-menu-btn" onclick="openTitleMenu()" title="菜单">☰</div>
     <div class="title-wrap">
       <div class="title-main">随机数之王 4</div>
       <div class="title-sub">王 国 争 霸</div>
