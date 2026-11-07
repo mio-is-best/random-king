@@ -2501,7 +2501,8 @@ function winBattle(overflow){
   // 负债：以 2 倍偿还
   if (S.debt){
     const d = S.debt; S.debt = 0;
-    S.gold = Math.max(goldFloor(), S.gold - d);
+    // 负债是「借了必须还」，钱不够就扣成负数（信用卡另算下限）
+    S.gold = S.gold - d;
     addLog(`负债结算：偿还 ${d} 金币（剩 ${S.gold}）`, "hurt");
   }
 
@@ -4326,6 +4327,7 @@ const CHANGELOG = [
       "注册后提示「点击登录」，不再引导去邮箱验证",
       "手机端地图可以左右滑动了，左右两端的节点不再点不到",
       "合成宝袋改为被动效果：获得时自动打乱本局道具编号（图鉴/宝箱/商店/合成结果全部跟随）",
+      "修复：负债结算可以正常扣成负数；持有合同时挑选道具的编号不再显示 undefined",
     ],
   },
   {
@@ -5208,7 +5210,7 @@ function pickItem(gradeMin, gradeMax, cb, title){
         <div class="mi">${d.icon}</div>
         <div style="flex:1">
           <div class="mn" style="color:${gradeColor(d.grade)}">${esc(d.name)}
-            <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.slot}</span>
+            <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.slot != null ? d.slot : d.id}</span>
             <span style="color:#6f6786;font-weight:400;font-size:11px">·${d.grade < 0 ? '角色能力' : d.grade + '级'} · ${d.type}${d.kind==='oneshot'?' · 一次性':''}${(d.use && d.kind!=='oneshot')?' · 主动':''}</span>
           </div>
           <div class="md">${colorizeChances(d.desc, d)}</div>
@@ -5336,7 +5338,7 @@ function renderCodexList(){
       <div class="mi">${d.icon}</div>
       <div style="flex:1">
         <div class="mn" style="color:${gradeColor(d.grade)}">${esc(d.name)}
-          <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.id}</span>
+          <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.slot != null ? d.slot : d.id}</span>
           <span style="color:#6f6786;font-weight:400;font-size:11px">·${showGrade ? (d.grade < 0 ? "角色能力 · " : d.grade + "级 · ") : ""}${d.type}${d.kind==='oneshot'?' · 一次性':''}${d.kind==='instant'?' · 立即生效':''}${(d.use && d.kind!=='oneshot')?' · 主动':''}</span>
         </div>
         <div class="md">${colorizeChances(d.desc, d)}</div>
