@@ -2620,10 +2620,22 @@ function buildMap(){
   const widths = [1, 2];
   // 行数 = 关卡数（每行都有一个战斗节点，最后一行是 BOSS）
   for (let r = 2; r < floors; r++){
-    const grow = rnd();
-    let w = widths[r-1] + (grow < 0.42 ? 1 : (grow < 0.90 ? 0 : -1));
+    let w;
+    if (r <= 3){
+      // 前几行固定变宽，避免整张图只有 1~2 列
+      w = r + 1;
+    } else {
+      const grow = rnd();
+      w = widths[r-1] + (grow < 0.42 ? 1 : (grow < 0.90 ? 0 : -1));
+    }
     w = Math.max(1, Math.min(8, w));
     widths.push(w);
+  }
+  // 兜底：整张图至少 4 列宽（关卡数太少时按行数收敛）
+  if (Math.max.apply(null, widths) < 4){
+    for (let r = 1; r < widths.length; r++){
+      widths[r] = Math.max(widths[r], Math.min(4, r + 1));
+    }
   }
   const rowCount = widths.length;
 
@@ -3800,7 +3812,7 @@ function renderMap(){
     const cells = row.map(id => {
       const n = S.map[id];
       const meta = NODE_META[n.type] || NODE_META.event;
-      if (n.elite) meta.lbl = () => "精英";
+      const nodeLabel = n.elite ? "精英" : meta.lbl(n);
       const base = doneSet.has(id) ? "done" : (reachSet.has(id) ? "now" : "future");
       // 已经走过但没选的分支：在当前行之上，且既不是已通过也不是可进入 → 画红叉
       const state = (base === "future" && curRow >= 0 && n.row < curRow) ? "dead" : base;
@@ -3808,7 +3820,7 @@ function renderMap(){
       const mark = (state === "dead" ? `<span class="nx">✕</span>` : "") +
                    (n.elite ? `<span class="fire">🔥</span>` : "");
       return `<div class="node ${state} ${n.elite ? "elite" : ""}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
-        ${meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : meta.lbl(n))}</span>${mark}
+        ${n.elite ? "🔥" : meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : nodeLabel)}</span>${mark}
       </div>`;
     }).join(`<div class="branch-gap"></div>`);
     return `<div class="node-row branch-row">${r>0 ? `<div class="connector ${row.some(id=>reachSet.has(id))?'done':''}"></div>` : ""}
@@ -4336,6 +4348,7 @@ const CHANGELOG = [
       "养成者的加伤改为按「养成者自己的星数」计算，别的角色拿到这个能力也享受同样的加成",
       "新增道具 #454 养成（2 级）：带着它通关，给养成者加一颗星",
       "挑选道具界面也会跟随合同/宝袋改写，被改写的道具现在能搜到、能选中",
+      "修复：精英节点的样式会污染后面所有战斗节点；地图有时只有两列的宽度问题",
     ],
   },
   {
