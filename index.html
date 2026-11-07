@@ -1655,7 +1655,8 @@ for (const d of ABILITY_ITEMS) ITEMS.push(d);
 const EXTRA_ITEMS = [
   D(-30,"合同",2,"功能类","本局内，道具库里编号 1~28 的道具会变成对应编号的角色的能力（等级跟随原道具）。",{icon:"📜",draw:false}),
 
-  D(-31,"合成宝袋",2,"功能类","主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
+  D(-31,"合成宝袋",2,"功能类","获得时：本局道具编号被打乱一次。主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
+    hooks:{onAcquire:()=>{ if(!shuffleActive()){ shuffleItemIds(); log("合成宝袋：本局的道具编号被打乱了！","good"); } }},
     use:(a)=>{ openCraftBag(); }}),
   D(-32,"贪食无人机",2,"攻击类","每回合造成 a 次 b 点伤害。主动：吃掉一件自己的道具，让 a+1 或 b+3。",{icon:"🛸",draw:false,
   dynDesc:()=>`每回合造成 ${S.droneA||1} 次 ${S.droneB||3} 点伤害。主动：吃掉一件道具，a+1 或 b+3。`,
@@ -1741,7 +1742,6 @@ function openCraftBag(){
       <div style="display:flex;flex-wrap:wrap;justify-content:center;max-height:190px;overflow:auto">${chips}</div>
       <div class="modal-close" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
         <button class="btn" id="bag-make" ${picked.length === 3 ? "" : "disabled"}>合 成</button>
-        <button class="btn ghost" id="bag-shuffle">🎲 打乱编号</button>
         <button class="btn ghost" id="bag-clear">重 选</button>
         <button class="btn ghost" id="bag-close">关 闭</button>
       </div>`);
@@ -1779,14 +1779,6 @@ function openCraftBag(){
       grantItem(target.id, { fromBag:true });
       log(`合成宝袋：合成了「${target.name}」。`,"good");
       closeModal();
-      afterStateChange();
-    };
-    const sh = div.querySelector("#bag-shuffle");
-    if (sh) sh.onclick = () => {
-      shuffleItemIds();
-      log("合成宝袋：本局的道具编号被打乱了！","good");
-      closeModal();
-      openCraftBag();
       afterStateChange();
     };
     const cl = div.querySelector("#bag-clear");
@@ -4333,7 +4325,7 @@ const CHANGELOG = [
       "更新日志可以展开查看每一批清单的逐条明细（9 批共 177 条）",
       "注册后提示「点击登录」，不再引导去邮箱验证",
       "手机端地图可以左右滑动了，左右两端的节点不再点不到",
-      "合成宝袋新增「打乱编号」：本局道具编号随机重排，图鉴/宝箱/商店/合成结果全部跟着变",
+      "合成宝袋改为被动效果：获得时自动打乱本局道具编号（图鉴/宝箱/商店/合成结果全部跟随）",
     ],
   },
   {
