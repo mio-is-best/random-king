@@ -4053,7 +4053,11 @@ async function doSignUp(email, password){
     sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user });
     return { ok: true, verified: true };
   }
-  // 项目开了邮箱验证时，这里不会有 token
+  // 没直接给会话：可能只是没返回 token，先尝试立刻登录一次
+  try {
+    await doSignIn(email, password);
+    return { ok: true, verified: true, autoLogin: true };
+  } catch(e){}
   return { ok: true, verified: false };
 }
 
@@ -4239,7 +4243,7 @@ function bindAccountButtons(){
         afterStateChange();
         openAccount();
       } else {
-        msg("注册成功，请先去邮箱点确认链接，再回来登录", false);
+        msg("注册成功，但服务器要求先验证邮箱；可以直接点「登 录」试试", false);
         busy(false);
       }
     } catch(e){ msg("注册失败：" + e.message, true); busy(false); }
@@ -4273,6 +4277,7 @@ const CHANGELOG = [
       "新增在线版 APK：直接加载网站，网页更新即自动生效",
       "游戏内新增「更新日志」模块（标题页 / 局内菜单都能进，按日期倒序）",
       "确立开发规则：此后每次改动都会同步更新日志",
+      "注册流程优化：注册后自动尝试登录，不再强制去邮箱点确认链接",
     ],
   },
   {
