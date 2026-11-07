@@ -1517,7 +1517,7 @@ function buildIndex(){
   ITEM_BY_ID.clear();
   for (const d of ITEMS) ITEM_BY_ID.set(d.id, d);
   for (const k in poolByGrade) delete poolByGrade[k];
-  for (const d0 of ITEMS){ const d = shownDef(d0.id) || d0;
+  for (const d of ITEMS){
     if (d.id <= 0 || d.draw === false || d.shopOnly) continue;   // 只在商店出现的道具不进抽取池
     (poolByGrade[d.grade] = poolByGrade[d.grade] || []).push(d.id);
   }
@@ -1741,6 +1741,7 @@ function openCraftBag(){
       <div style="display:flex;flex-wrap:wrap;justify-content:center;max-height:190px;overflow:auto">${chips}</div>
       <div class="modal-close" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
         <button class="btn" id="bag-make" ${picked.length === 3 ? "" : "disabled"}>合 成</button>
+        <button class="btn ghost" id="bag-shuffle">🎲 打乱编号</button>
         <button class="btn ghost" id="bag-clear">重 选</button>
         <button class="btn ghost" id="bag-close">关 闭</button>
       </div>`);
@@ -1778,6 +1779,14 @@ function openCraftBag(){
       grantItem(target.id, { fromBag:true });
       log(`合成宝袋：合成了「${target.name}」。`,"good");
       closeModal();
+      afterStateChange();
+    };
+    const sh = div.querySelector("#bag-shuffle");
+    if (sh) sh.onclick = () => {
+      shuffleItemIds();
+      log("合成宝袋：本局的道具编号被打乱了！","good");
+      closeModal();
+      openCraftBag();
       afterStateChange();
     };
     const cl = div.querySelector("#bag-clear");
@@ -2759,6 +2768,7 @@ function extendMapForShadow(){
 }
 
 function newRun(charKey, seed){
+  S.shuffleMap = null;
   S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
   S.cLow1Win = 0; S.battleDmg = 0; S.maxHit = 0;
   const ch = CHARS.find(c => c.key === charKey) || CHARS[0];
@@ -2860,12 +2870,42 @@ let grantDepth = 0;
 /* 显示用的道具定义：持有合同时，1~28 号显示成对应角色的能力 */
 function shownDef(id){
   const n = Number(id);
-  if (n >= 1 && n <= CHARS.length && S.items &&
-      S.items.some(i => i.def && i.def.id === -30 && !i.spent)){
+  const hasContract = S.items && S.items.some(i => i.def && i.def.id === -30 && !i.spent);
+  if (hasContract && n >= 1 && n <= CHARS.length){
     const ab = ITEM_BY_ID.get(-n);
     if (ab) return ab;
   }
-  return ITEM_BY_ID.get(n);
+  // 宝袋重排过编号：图鉴 / 商店 / 宝箱都显示重排后的道具
+  return ITEM_BY_ID.get(shuffledId(n)) || ITEM_BY_ID.get(n);
+}
+
+
+/* ============================================================
+   本局道具编号重排（合成宝袋的效果）
+   S.shuffleMap: 编号 -> 实际道具编号
+   ============================================================ */
+function shuffleItemIds(){
+  const ids = ITEMS.filter(i => i.id > 0 && (i.grade || 0) >= 0).map(i => i.id);
+  const pool = ids.slice();
+  // Fisher-Yates
+  for (let i = pool.length - 1; i > 0; i--){
+    const j = Math.floor(rnd() * (i + 1));
+    const t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+  }
+  const map = {};
+  ids.forEach((id, k) => { map[id] = pool[k]; });
+  S.shuffleMap = map;
+  return map;
+}
+
+function shuffleActive(){ return !!(S.shuffleMap && Object.keys(S.shuffleMap).length); }
+
+/* 把一个「图鉴上的编号」翻译成实际道具编号 */
+function shuffledId(id){
+  if (!shuffleActive()) return id;
+  const n = Number(id);
+  if (S.shuffleMap[n] != null && n > 0) return S.shuffleMap[n];
+  return id;
 }
 
 function contractRewrite(id){
@@ -2885,6 +2925,8 @@ function grantItem(id, opts={}){
   }
   // 合同：把编号 1~28 的道具改写为对应角色能力
   id = contractRewrite(id);
+  // 宝袋重排：编号 N 实际给的是图鉴上显示的那件
+  if (id > 0 && !opts.rawId) id = shuffledId(id);
   const def = ITEM_BY_ID.get(id);
   if (!def) return null;
   // 「只能持有 1 个」的道具：重复获得时改为其它道具
@@ -2905,7 +2947,8 @@ function grantItem(id, opts={}){
   }
   if (grantDepth > 8) return it;
   // 合成宝袋：把编号拆成 3 个数字存进去（宝袋自己给的道具除外）
-  if (!opts.fromBag && id > 0 && id !== 299){
+  const isCain = !!(S.char && S.char.key === "cain");
+  if (isCain && !opts.fromBag && id > 0 && id !== 299){
     try {
       if (bagStoreItem(id)){
         // 里该隐：道具直接被袋子吃掉，不留在身上
@@ -4290,6 +4333,7 @@ const CHANGELOG = [
       "更新日志可以展开查看每一批清单的逐条明细（9 批共 177 条）",
       "注册后提示「点击登录」，不再引导去邮箱验证",
       "手机端地图可以左右滑动了，左右两端的节点不再点不到",
+      "合成宝袋新增「打乱编号」：本局道具编号随机重排，图鉴/宝箱/商店/合成结果全部跟着变",
     ],
   },
   {
@@ -5172,7 +5216,7 @@ function pickItem(gradeMin, gradeMax, cb, title){
         <div class="mi">${d.icon}</div>
         <div style="flex:1">
           <div class="mn" style="color:${gradeColor(d.grade)}">${esc(d.name)}
-            <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.id}</span>
+            <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.slot}</span>
             <span style="color:#6f6786;font-weight:400;font-size:11px">·${d.grade < 0 ? '角色能力' : d.grade + '级'} · ${d.type}${d.kind==='oneshot'?' · 一次性':''}${(d.use && d.kind!=='oneshot')?' · 主动':''}</span>
           </div>
           <div class="md">${colorizeChances(d.desc, d)}</div>
@@ -5273,10 +5317,11 @@ function renderCodexList(){
   const raw = (S.codex.q || "").trim();
   const tokens = raw.toLowerCase().split(/\s+/).filter(Boolean);
 
-  let list = ITEMS.slice();
+  // 每一格依旧按原编号排列，但显示的是重排/合同之后的道具
+  let list = ITEMS.map(d0 => Object.assign({}, shownDef(d0.id) || d0, { slot: d0.id }));
   if (tokens.length){
     list = list.filter(d => {
-      const hay = (`#${d.id} ${d.id} ${d.name} ${d.desc} ${d.type}` +
+      const hay = (`#${d.slot} ${d.slot} #${d.id} ${d.id} ${d.name} ${d.desc} ${d.type}` +
         `${d.kind === "oneshot" ? " 一次性" : ""}${d.use ? " 主动" : ""}`).toLowerCase();
       return tokens.every(t => hay.includes(t));
     });
@@ -5307,7 +5352,7 @@ function renderCodexList(){
     </div>`;
 
   if (S.codex.sort === "id"){
-    list.sort((a, b) => a.id - b.id);
+    list.sort((a, b) => a.slot - b.slot);
     box.innerHTML = list.map(d => rowHTML(d, true)).join("");
     return;
   }
@@ -5318,7 +5363,7 @@ function renderCodexList(){
     <div style="margin:14px 0 6px;font-size:12px;letter-spacing:.2em;color:${gradeColor(g)}">
       ${g < 0 ? "角色能力" : g + " 级"} · ${byGrade[g].length} 件
     </div>
-    ${byGrade[g].sort((a, b) => a.id - b.id).map(d => rowHTML(d, false)).join("")}
+    ${byGrade[g].sort((a, b) => a.slot - b.slot).map(d => rowHTML(d, false)).join("")}
   `).join("");
 }
 
