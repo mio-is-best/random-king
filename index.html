@@ -4221,10 +4221,10 @@ const ACHIEVEMENTS = [
   { id:"c_boss",     name:"人员管理",   desc:"单局同时拥有 10 件道具",             char:"boss" },
   { id:"c_cain",     name:"回收站",     desc:"单局销毁 3 件自己的道具",            char:"cain" },
   { id:"c_dreamer",  name:"梦游者",     desc:"累计击杀 20 名敌人",                 char:"dreamer" },
-  { id:"c_patient",  name:"带病上阵",   desc:"以 1 点血量赢下一场战斗",            char:"patient" },
+  { id:"c_patient",  name:"带病上阵",   desc:"以 3 点或更低血量赢下一场战斗",      char:"patient" },
   { id:"c_mechanic", name:"装备齐全",   desc:"单局同时拥有 4 件 3 级以上道具",     char:"mechanic" },
   { id:"c_grower",   name:"星光初现",   desc:"任意角色达到 2 星",                  char:"grower" },
-  { id:"c_ghost2",   name:"命不该绝",   desc:"单局从 1 点血量赢下 2 场战斗",       char:"ghost2" },
+  { id:"c_ghost2",   name:"命不该绝",   desc:"单局以 3 血以下赢下 3 场战斗",       char:"ghost2" },
   { id:"c_engineer", name:"炮塔养成",   desc:"单局内把炮塔的 α 养到 6、β 养到 7",  char:"engineer" },
   { id:"c_bomber",   name:"爆破专家",   desc:"单次攻击造成 100 点以上伤害",        char:"bomber" },
 ];
@@ -4284,10 +4284,10 @@ function checkAchievements(){
     if (S.items.length >= 10) unlockAch("c_boss");
     if ((S.cDestroy || 0) >= 3) unlockAch("c_cain");
     if ((S.totalKills || 0) >= 20) unlockAch("c_dreamer");
-    if ((S.cLow1Win || 0) >= 1) unlockAch("c_patient");
+    if ((S.cLow3Win || 0) >= 1) unlockAch("c_patient");
     if (S.items.filter(i => (i.def.grade || 0) >= 3).length >= 4) unlockAch("c_mechanic");
     if (maxCharStars() >= 2) unlockAch("c_grower");
-    if ((S.cLow1Win || 0) >= 2) unlockAch("c_ghost2");
+    if ((S.cLow3Win || 0) >= 3) unlockAch("c_ghost2");
     if (S.items.some(i => i.def.id === 280 && (i.alpha || 1) >= 6 && (i.beta || 1) >= 7)) unlockAch("c_engineer");
     if ((S.maxHit || 0) >= 100) unlockAch("c_bomber");
   } catch(e){}
