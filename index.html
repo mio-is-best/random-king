@@ -3294,6 +3294,7 @@ function openTitleMenu(){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       <button class="btn block" onclick="closeModal(); openAccount()">☁️ 账 号 / 云 存 档</button>
       <button class="btn ghost block" onclick="closeModal(); openAchievements()">🏆 成 就</button>
+      <button class="btn ghost block" onclick="closeModal(); openChangelog()">📜 更 新 日 志</button>
       <button class="btn ghost block" onclick="closeModal(); openCodex()">📖 道 具 图 鉴</button>
       <button class="btn ghost block" onclick="closeModal(); openRules()">❓ 玩 法 说 明</button>
       <button class="btn ghost block" onclick="closeModal(); startTutorial()">🎓 新 手 教 程</button>
@@ -3366,6 +3367,7 @@ function openMenu(){
       <button class="btn ghost block" onclick="openRules()">玩 法 说 明</button>
       <button class="btn ghost block" onclick="openAccount()">☁️ 账 号 / 云 存 档</button>
       <button class="btn ghost block" onclick="startTutorial()">新 手 教 程</button>
+      <button class="btn ghost block" onclick="openChangelog()">更 新 日 志</button>
       <button class="btn ghost block" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost block" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       <button class="btn blood block" onclick="quitToTitle()">退 出 游 戏</button>
@@ -4242,6 +4244,83 @@ function bindAccountButtons(){
       }
     } catch(e){ msg("注册失败：" + e.message, true); busy(false); }
   };
+}
+
+
+/* ============================================================
+   更新日志（按日期倒序，最新的放最上面）
+   维护方式：每次更新在数组最前面加一条 { date, title, items:[] }
+   ============================================================ */
+const CHANGELOG = [
+  {
+    date: "2026-11-07",
+    title: "账号 · 云存档 · 精英敌人 · 清单 8/9",
+    items: [
+      "新增 14 个角色（富有者 / 567 / 矿工 / 测试员 / 亚玻伦 / 老板 / 里该隐 / 追梦旅人 / 病人 / 机械师 / 养成者 / 里游魂 / 工程师 / 炸弹人）",
+      "新增 4 件负编号道具：合同、合成宝袋、贪食无人机、赌命",
+      "14 个角色改用成就解锁，成就列表标注「解锁角色」",
+      "成就门槛调整：磨刀人（累计合成小刀 10 次）、压力测试（单局 50 次主动）、炮塔养成（α6 / β7）",
+      "新手教程：首次进入询问，带 3 节点教学地图与分步提示",
+      "合成宝袋：得到道具时拆成 3 位数字，左键添加 / 右键收回，相同数字带数量角标",
+      "里该隐：非宝袋渠道获得的道具直接被吃掉",
+      "贪食无人机：a/b 实时显示，可分别强化",
+      "精英敌人节点：20% 替换普通战斗（前 3 行不生成），冒火外观、血量 ×1.6，击败后开一次宝箱",
+      "地图：走过的节点变暗，未经过的分支画红叉",
+      "概率显示：上限 95%，大大大顺与「敌人血量百分比」不再被幸运改写",
+      "合同：持有期间道具库 1~28 号在宝箱 / 商店 / 图鉴里显示为角色能力",
+      "注册 / 登录 + 云存档（Supabase），进度自动同步",
+      "标题页右上角新增菜单（账号 / 成就 / 图鉴 / 说明 / 教程）",
+      "新增在线版 APK：直接加载网站，网页更新即自动生效",
+    ],
+  },
+  {
+    date: "2026-11-05",
+    title: "Godot 移植 · 双端导出 · 地图连线重做",
+    items: [
+      "第五、六批清单：商店优惠连锁、皇帝、塔盾、舅产、大补等修复",
+      "长按连发无法退出的问题修复",
+      "地图连线改为按左右位置分配，一个节点可以有多个父节点",
+      "增伤对道具造成的伤害生效",
+      "完成《随机数之王》Godot 4 移植骨架（种子 / 属性 / 战场 / 树状地图 / 商店 / 宝箱 / 事件）",
+      "导出 Windows EXE 与 Android APK",
+      "网页版部署到 GitHub Pages，手机可直接在线玩",
+    ],
+  },
+  {
+    date: "2026-11-04",
+    title: "第二 ~ 四批清单 · 成就 · 移动端适配",
+    items: [
+      "地图改为树状岔路，影分身可继续追加 12 层",
+      "达摩剑致死结算、黑客持续生效、高利贷封金币、背刺结算顺序、利斧秒杀",
+      "长按图标连续使用、一次性道具双击、道具控制台（E 键，不进入抽取池）",
+      "筛种器：不限次数搜种，种子可直接复制",
+      "成就系统（9 项）与成就入口",
+      "手机端适配：390×844 下战斗界面无需滚动",
+      "日志改为固定 4 行 + 历史弹窗",
+    ],
+  },
+  {
+    date: "2026-11-03",
+    title: "立项 · 最初可玩版 · 第一批清单",
+    items: [
+      "依据设计文档与 34 张手稿，做出第一个能通关的单文件版本",
+      "核心战斗：轮流攻击，伤害由计算器随机 1~10",
+      "12 层地牢、宝箱三选一 / 商店、金币系统、14 个角色、0~4 级道具",
+      "第一批清单（28 条）：加伤允许为负、启动只在首回合、一次性道具进背包、日志不跳顶、塔盾数值修正等",
+    ],
+  },
+];
+
+function openChangelog(){
+  const rows = CHANGELOG.map(sec => `
+    <div style="margin:14px 0 6px;font-size:12px;letter-spacing:.16em;color:var(--gold)">${esc(sec.date)}　${esc(sec.title)}</div>
+    <div style="border-left:2px solid #3a3150;padding-left:10px;margin-left:4px">
+      ${sec.items.map(t => `<div style="font-size:12.5px;line-height:1.7;color:#c9c2d8">· ${esc(t)}</div>`).join("")}
+    </div>`).join("");
+  modalShell(`<h3>📜 更 新 日 志</h3>
+    <div class="msub">共 ${CHANGELOG.length} 个版本节点 · 最新在上</div>
+    <div style="max-height:60vh;overflow:auto;margin-top:6px">${rows}</div>
+    <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
 }
 
 function afterStateChange(){
