@@ -1821,6 +1821,7 @@ function makeEnemy(n){
 }
 
 function startBattle(n){
+  S.battleDmg = 0;   // 单场累计伤害
   S.awaitingContinue = false;
   const enemy = makeEnemy(n);
   const axeNow = false;
@@ -2134,6 +2135,7 @@ function playerAttack(){
   const hi = c.forceHi ?? st.maxDmg;
   B.lastRoll = (B.payWin || S.forcedRoll) ? (S.forcedRoll || hi) : ri(lo, hi);
   B.lastFormula = null;
+  S.battleDmg = 0;
   S.busy = false;
 
   // 「刷新」能力由开局的角色能力道具提供
@@ -2205,6 +2207,8 @@ function resolveRolledAttack(c){
 
   B.lastFormula = { roll, steps, final: dmg, mult:m, addDmg:st.addDmg };
   if ((S.maxHit || 0) < dmg) S.maxHit = dmg;
+  S.cAttack = (S.cAttack || 0) + 1;
+  S.battleDmg = (S.battleDmg || 0) + dmg;
   B.attacksLeft--;
   B.attackNo = (B.attackNo || 0) + 1;
   S.busy = false;
@@ -2687,6 +2691,8 @@ function extendMapForShadow(){
 }
 
 function newRun(charKey, seed){
+  S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
+  S.cLow1Win = 0; S.battleDmg = 0; S.maxHit = 0;
   const ch = CHARS.find(c => c.key === charKey) || CHARS[0];
   BALANCE.enemyHp = S.diff;
   // 种子：同一局里所有随机数都由它决定
@@ -4206,9 +4212,9 @@ const ACHIEVEMENTS = [
   { id:"deepest",    name:"深渊探索者", desc:"到达第 12 层" },
   { id:"deathnote",  name:"死神之证",   desc:"所有角色各通关 5 次，解锁死亡证明" },
   { id:"c_rich",     name:"第一桶金",   desc:"单局金币达到 60",                    char:"rich" },
-  { id:"c_567",      name:"刀片如林",   desc:"单局同时持有 4 个刀片",              char:"n567" },
+  { id:"c_567",      name:"数字人生",   desc:"单局掷骰攻击 30 次",                char:"n567" },
   { id:"c_miner",    name:"见矿就挖",   desc:"单局拥有 6 件以上道具",              char:"miner" },
-  { id:"c_tester",   name:"压力测试",   desc:"单局使用 3 次主动道具",              char:"tester" },
+  { id:"c_tester",   name:"压力测试",   desc:"单局使用 12 次主动道具",             char:"tester" },
   { id:"c_apollyon", name:"一次性的艺术", desc:"单局使用 5 件一次性道具",          char:"apollyon" },
   { id:"c_boss",     name:"人员管理",   desc:"单局同时拥有 10 件道具",             char:"boss" },
   { id:"c_cain",     name:"回收站",     desc:"单局销毁 3 件自己的道具",            char:"cain" },
@@ -4217,8 +4223,8 @@ const ACHIEVEMENTS = [
   { id:"c_mechanic", name:"装备齐全",   desc:"单局同时拥有 4 件 3 级以上道具",     char:"mechanic" },
   { id:"c_grower",   name:"星光初现",   desc:"任意角色达到 2 星",                  char:"grower" },
   { id:"c_ghost2",   name:"命不该绝",   desc:"单局从 1 点血量赢下 2 场战斗",       char:"ghost2" },
-  { id:"c_engineer", name:"火力覆盖",   desc:"单场战斗造成 20 点以上伤害",         char:"engineer" },
-  { id:"c_bomber",   name:"爆破专家",   desc:"单次攻击造成 40 点以上伤害",         char:"bomber" },
+  { id:"c_engineer", name:"火力覆盖",   desc:"单场战斗内累计造成 60 点以上伤害",   char:"engineer" },
+  { id:"c_bomber",   name:"爆破专家",   desc:"单次攻击造成 100 点以上伤害",        char:"bomber" },
 ];
 
 function achStore(){
@@ -4267,9 +4273,9 @@ function checkAchievements(){
 
     // ---- 角色解锁成就 ----
     if (S.gold >= 60) unlockAch("c_rich");
-    if (S.items.filter(i => i.def.id === 58).length >= 4) unlockAch("c_567");
+    if ((S.cAttack || 0) >= 30) unlockAch("c_567");
     if (S.items.length >= 6) unlockAch("c_miner");
-    if ((S.cActive || 0) >= 3) unlockAch("c_tester");
+    if ((S.cActive || 0) >= 12) unlockAch("c_tester");
     if ((S.cOneshot || 0) >= 5) unlockAch("c_apollyon");
     if (S.items.length >= 10) unlockAch("c_boss");
     if ((S.cDestroy || 0) >= 3) unlockAch("c_cain");
@@ -4278,8 +4284,8 @@ function checkAchievements(){
     if (S.items.filter(i => (i.def.grade || 0) >= 3).length >= 4) unlockAch("c_mechanic");
     if (maxCharStars() >= 2) unlockAch("c_grower");
     if ((S.cLow1Win || 0) >= 2) unlockAch("c_ghost2");
-    if ((S.maxHit || 0) >= 20) unlockAch("c_engineer");
-    if ((S.maxHit || 0) >= 40) unlockAch("c_bomber");
+    if ((S.battleDmg || 0) >= 60) unlockAch("c_engineer");
+    if ((S.maxHit || 0) >= 100) unlockAch("c_bomber");
   } catch(e){}
 }
 
