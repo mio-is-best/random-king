@@ -2694,28 +2694,6 @@ function buildMap(){
     if (isLast) nodes[row[0]].boss = true;
   }
 
-  // 战斗层数不足时补，多了就减（只动可达节点）
-  const countEnemies = () => nodes.filter(n => n.type === "enemy").length;
-  let have = countEnemies();
-  const need = floors;
-  if (have < need){
-    const spare = [];
-    for (let r = 1; r < rows.length - 1; r++){
-      for (const id of rows[r]){
-        if (nodes[id].type !== "enemy" && reachRows[r].has(id)) spare.push(id);
-      }
-    }
-    for (let i = spare.length - 1; i > 0; i--){
-      const j = Math.floor(rnd() * (i + 1));
-      const t = spare[i]; spare[i] = spare[j]; spare[j] = t;
-    }
-    for (const id of spare){
-      if (have >= need) break;
-      nodes[id].type = "enemy";
-      nodes[id].idx = ++enemyNo;
-      have++;
-    }
-  }
   for (const n of nodes) if (n.type === "enemy" && !n.idx) n.idx = ++enemyNo;
 
   S.map = nodes;
@@ -2991,6 +2969,8 @@ function advanceNode(){
     enterChest();
     return;
   }
+  // 节点结束（567 的「每通过一个节点 +1 刀片」等挂在这里）
+  try { fireHook("onNodeEnd", {}); } catch(e){}
   settleBubble();          // 泡沫经济：进入下一关时收回
   const cur = S.map[S.nodeIdx];
   if (cur && !(S.mapDone || []).includes(S.nodeIdx)){
@@ -3812,15 +3792,16 @@ function renderMap(){
     const cells = row.map(id => {
       const n = S.map[id];
       const meta = NODE_META[n.type] || NODE_META.event;
-      const nodeLabel = n.elite ? "精英" : meta.lbl(n);
+      const isElite = !!(n.elite && n.type === "enemy");
+      const nodeLabel = isElite ? "精英" : meta.lbl(n);
       const base = doneSet.has(id) ? "done" : (reachSet.has(id) ? "now" : "future");
       // 已经走过但没选的分支：在当前行之上，且既不是已通过也不是可进入 → 画红叉
       const state = (base === "future" && curRow >= 0 && n.row < curRow) ? "dead" : base;
       const canClick = reachSet.has(id);
       const mark = (state === "dead" ? `<span class="nx">✕</span>` : "") +
                    (n.elite ? `<span class="fire">🔥</span>` : "");
-      return `<div class="node ${state} ${n.elite ? "elite" : ""}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
-        ${n.elite ? "🔥" : meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : nodeLabel)}</span>${mark}
+      return `<div class="node ${state} ${isElite ? "elite" : ""}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
+        ${isElite ? "🔥" : meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : nodeLabel)}</span>${mark}
       </div>`;
     }).join(`<div class="branch-gap"></div>`);
     return `<div class="node-row branch-row">${r>0 ? `<div class="connector ${row.some(id=>reachSet.has(id))?'done':''}"></div>` : ""}
@@ -4349,6 +4330,8 @@ const CHANGELOG = [
       "新增道具 #454 养成（2 级）：带着它通关，给养成者加一颗星",
       "挑选道具界面也会跟随合同/宝袋改写，被改写的道具现在能搜到、能选中",
       "修复：精英节点的样式会污染后面所有战斗节点；地图有时只有两列的宽度问题",
+      "修复：火堆等非战斗节点偶尔被改成战斗/精英节点（去掉了会改写节点类型的补偿逻辑）",
+      "修复：567 的「每通过一个节点 +1 刀片」没有触发",
     ],
   },
   {
