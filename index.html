@@ -1505,6 +1505,11 @@ D(388,"天平",1,"功能类","使加伤与减伤平均分配。",{icon:"⚖️",
   dyn:(st)=>{ const t=st.addDmg+st.reduceDmg; const h=Math.round(t/2); st.addDmg=h; st.reduceDmg=t-h; }}),
 
 D(453,"飞鞋",3,"功能类","地图上可以无视连接线，直接前往下一行的任意一个节点。",{icon:"👟"}),
+D(454,"养成",4,"功能类","携带此道具通关时，给「养成者」增加一颗星。",{icon:"🌱",
+  hooks:{onVictory:()=>{
+    bumpCharStar("grower");
+    log("养成：养成者获得了一颗星！","good");
+  }}}),
 
 /* ================= 5 级 ================= */
 D(303,"以撒宝",5,"功能类","你好！我是以撒宝，会为你提供应有的帮助！（获得 3 个随机道具）",{icon:"🧸",
@@ -1637,10 +1642,10 @@ const ABILITY_ITEMS = [
     hooks:{onBattleStart:(c,a)=>{ a.addItem(114); }}}),
   D(-24,"角色能力 · 机械师",-1,"功能类","伤害 +1，获得贪食无人机和一个随机道具。",{icon:"🔧",draw:false,mods:{addDmg:1},
     hooks:{onAcquire:(c,a)=>{ a.addItem(-32); const d=a.draw(0,4); if(d) a.addItem(d.id); }}}),
-  D(-25,"角色能力 · 养成者",-1,"功能类","伤害 +1，每拥有一颗星再 +1。",{icon:"🌱",draw:false,mods:{addDmg:1},
-    dynDesc:()=>{ let n=0; try{ const o=JSON.parse(localStorage.getItem("rk4_stars")||"{}"); n=o[(S.char&&S.char.key)||""]||0; }catch(e){}
-      return `伤害 +${1+n}（基础 +1，${n} 颗星 +${n}）。`; },
-    dyn:(st)=>{ let n=0; try{ const o=JSON.parse(localStorage.getItem("rk4_stars")||"{}"); n=o[(S.char&&S.char.key)||""]||0; }catch(e){} st.addDmg += n; }}),
+  D(-25,"角色能力 · 养成者",-1,"功能类","伤害 +1，每拥有一颗星再 +1（按养成者自己的星数算）。",{icon:"🌱",draw:false,mods:{addDmg:1},
+    dynDesc:()=>{ const n = charStars("grower");
+      return `伤害 +${1+n}（基础 +1，养成者的 ${n} 颗星 +${n}）。`; },
+    dyn:(st)=>{ st.addDmg += charStars("grower"); }}),
   D(-26,"角色能力 · 里游魂",-1,"功能类","伤害 +3，获得赌命。",{icon:"👤",draw:false,mods:{addDmg:3},
     hooks:{onAcquire:(c,a)=>{ a.addItem(-33); }}}),
   D(-27,"角色能力 · 工程师",-1,"功能类","获得炮塔，初始 α 与 β 均为 2。",{icon:"🛠️",draw:false,
@@ -4328,6 +4333,9 @@ const CHANGELOG = [
       "手机端地图可以左右滑动了，左右两端的节点不再点不到",
       "合成宝袋改为被动效果：获得时自动打乱本局道具编号（图鉴/宝箱/商店/合成结果全部跟随）",
       "修复：负债结算可以正常扣成负数；持有合同时挑选道具的编号不再显示 undefined",
+      "养成者的加伤改为按「养成者自己的星数」计算，别的角色拿到这个能力也享受同样的加成",
+      "新增道具 #454 养成：带着它通关，给养成者加一颗星",
+      "挑选道具界面也会跟随合同/宝袋改写，被改写的道具现在能搜到、能选中",
     ],
   },
   {
@@ -4984,6 +4992,7 @@ function gameOver(){
 }
 
 function victory(){
+  try { fireHook("onVictory", {}); } catch(e){}
   if (S.tutorial){ endTutorial(); modalShell(`<h3>教 程 完 成</h3><div class="msub">你已经学会基本操作了，正式开局会难很多，祝你好运。</div><div class="modal-close"><button class="btn" onclick="closeModal();quitToTitle()">回 到 标 题</button></div>`); return; }
   const stars = S.depth >= 12 ? "★★" : (S.depth >= 10 ? "★" : "");
   saveRecord(true);
@@ -5165,7 +5174,12 @@ function pickOwned(title, cb, filter){
 function pickItem(gradeMin, gradeMax, cb, title){
   if (S.simulating) return;
 
-  const all = ITEMS.filter(d => d.id > 0 && d.draw !== false && d.grade >= gradeMin && d.grade <= gradeMax);
+  // 编号 → 实际道具：合同 / 合成宝袋改写后，挑选界面也要显示、也要能搜到
+  // 先按「格子原本的等级」筛，再套上显示层的改写
+  // （合同会把 1~28 号显示成 -1 级的角色能力，不能因此被等级筛选踢掉）
+  const all = ITEMS
+    .filter(d => d.id > 0 && d.draw !== false && (d.grade || 0) >= gradeMin && (d.grade || 0) <= gradeMax)
+    .map(d0 => Object.assign({}, shownDef(d0.id) || d0, { slot: d0.id }));
   const ui = { q: "", sort: "grade" };
 
   closeModal();
@@ -5190,12 +5204,12 @@ function pickItem(gradeMin, gradeMax, cb, title){
     const toks = ui.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
     let list = all.filter(d => {
       if (!toks.length) return true;
-      const hay = (`#${d.id} ${d.id} ${d.name} ${d.desc} ${d.type}`).toLowerCase();
+      const hay = (`#${d.slot} ${d.slot} #${d.id} ${d.id} ${d.name} ${d.desc} ${d.type}`).toLowerCase();
       return toks.every(t => hay.includes(t));
     });
     list = list.slice().sort(ui.sort === "id"
-      ? (a, b) => a.id - b.id
-      : (a, b) => a.grade - b.grade || a.id - b.id);
+      ? (a, b) => a.slot - b.slot
+      : (a, b) => a.grade - b.grade || a.slot - b.slot);
 
     const cnt = $("#pick-count");
     if (cnt) cnt.textContent = `可选 ${list.length} / ${all.length} 件`;
@@ -5206,11 +5220,11 @@ function pickItem(gradeMin, gradeMax, cb, title){
       return;
     }
     rows.innerHTML = list.map(d => `
-      <div class="modal-row pick" data-id="${d.id}">
+      <div class="modal-row pick" data-id="${d.slot}">
         <div class="mi">${d.icon}</div>
         <div style="flex:1">
           <div class="mn" style="color:${gradeColor(d.grade)}">${esc(d.name)}
-            <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.slot != null ? d.slot : d.id}</span>
+            <span style="color:#6f6786;font-weight:400;font-size:11.5px">#${d.slot}</span>
             <span style="color:#6f6786;font-weight:400;font-size:11px">·${d.grade < 0 ? '角色能力' : d.grade + '级'} · ${d.type}${d.kind==='oneshot'?' · 一次性':''}${(d.use && d.kind!=='oneshot')?' · 主动':''}</span>
           </div>
           <div class="md">${colorizeChances(d.desc, d)}</div>
@@ -5232,6 +5246,7 @@ function pickItem(gradeMin, gradeMax, cb, title){
     $("#pick-sort").textContent = (ui.sort === "id") ? "按等级排" : "按编号排";
     render();
   });
+
   render();
   qi.focus();
 }
