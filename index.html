@@ -211,12 +211,13 @@ img{-webkit-user-drag:none;user-select:none}
 
 /* ============ 地图 ============ */
 .map-panel{
-  max-height:420px;overflow-y:auto;padding:16px 0 16px 0;position:relative;
+  max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:16px 0 16px 0;position:relative;
   background:linear-gradient(180deg,#161221,#13101c);
   border:1px solid #2c2540;border-radius:12px;
   box-shadow:inset 0 0 40px rgba(0,0,0,.6);
 }
-.map-wrap{display:flex;flex-direction:column;align-items:center}
+.map-wrap{display:flex;flex-direction:column;align-items:center;min-width:max-content;padding:0 20px;margin:0 auto;box-sizing:border-box}
 .node-row{display:flex;flex-direction:column;align-items:center;position:relative}
 .node{
   width:46px;height:46px;border-radius:50%;
@@ -592,7 +593,7 @@ img{-webkit-user-drag:none;user-select:none}
   .modal{padding:12px;max-height:90vh}
   .modal h3{font-size:15px}
   .diff-box{padding:10px 12px;margin-top:12px}
-  .map-panel{max-height:40vh}
+  .map-panel{max-height:40vh;overflow:auto;-webkit-overflow-scrolling:touch}
   .codex-modal{max-height:92vh}
   .codex-bar{flex-wrap:wrap}
   .title-main{font-size:34px}
@@ -4230,7 +4231,7 @@ function bindAccountButtons(){
     } catch(e){
       const m = String(e.message || "");
       if (/not confirmed|Email not confirmed/i.test(m)){
-        msg("这个账号还没验证邮箱。去邮箱点确认链接，或在 Supabase 后台关掉 Confirm email", true);
+        msg("注册成功，请点击「登 录」再试一次", true);
       } else {
         msg("登录失败：" + m, true);
       }
@@ -4251,7 +4252,7 @@ function bindAccountButtons(){
         afterStateChange();
         openAccount();
       } else {
-        msg("注册成功。服务器仍开着邮箱验证：要么去邮箱点确认，要么在 Supabase 后台把 Confirm email 关掉", false);
+        msg("注册成功，请点击「登 录」", false);
         busy(false);
       }
     } catch(e){ msg("注册失败：" + e.message, true); busy(false); }
@@ -4287,7 +4288,8 @@ const CHANGELOG = [
       "确立开发规则：此后每次改动都会同步更新日志",
       "注册流程优化：注册后自动尝试登录，不再强制去邮箱点确认链接",
       "更新日志可以展开查看每一批清单的逐条明细（9 批共 177 条）",
-      "注册/登录的提示更明确：区分「密码错误」和「邮箱未验证」",
+      "注册后提示「点击登录」，不再引导去邮箱验证",
+      "手机端地图可以左右滑动了，左右两端的节点不再点不到",
     ],
   },
   {
