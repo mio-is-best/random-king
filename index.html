@@ -81,6 +81,11 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.node.done{opacity:.35;filter:grayscale(.7)}
+.node.dead{opacity:.3;filter:grayscale(1)}
+.node .nx{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#e8524b;font-size:22px;font-weight:900;text-shadow:0 0 6px rgba(0,0,0,.8);pointer-events:none}
+.node{position:relative}
 
 /* ============ 场景 ============ */
 #stage{position:relative;min-height:520px}
@@ -1624,6 +1629,8 @@ const ABILITY_ITEMS = [
   D(-24,"角色能力 · 机械师",-1,"功能类","伤害 +1，获得贪食无人机和一个随机道具。",{icon:"🔧",draw:false,mods:{addDmg:1},
     hooks:{onAcquire:(c,a)=>{ a.addItem(-32); const d=a.draw(0,4); if(d) a.addItem(d.id); }}}),
   D(-25,"角色能力 · 养成者",-1,"功能类","伤害 +1，每拥有一颗星再 +1。",{icon:"🌱",draw:false,mods:{addDmg:1},
+    dynDesc:()=>{ let n=0; try{ const o=JSON.parse(localStorage.getItem("rk4_stars")||"{}"); n=o[(S.char&&S.char.key)||""]||0; }catch(e){}
+      return `伤害 +${1+n}（基础 +1，${n} 颗星 +${n}）。`; },
     dyn:(st)=>{ let n=0; try{ const o=JSON.parse(localStorage.getItem("rk4_stars")||"{}"); n=o[(S.char&&S.char.key)||""]||0; }catch(e){} st.addDmg += n; }}),
   D(-26,"角色能力 · 里游魂",-1,"功能类","伤害 +3，获得赌命。",{icon:"👤",draw:false,mods:{addDmg:3},
     hooks:{onAcquire:(c,a)=>{ a.addItem(-33); }}}),
@@ -3678,14 +3685,20 @@ function renderMap(){
   };
   const doneSet = new Set(S.mapDone || []);
   const reachSet = new Set(S.reach || []);
+  // 玩家当前所在行：取可进入节点里最靠下的那一行
+  let curRow = -1;
+  for (const id of reachSet){ const nd = S.map[id]; if (nd && nd.row > curRow) curRow = nd.row; }
   const rows = (S.mapRows || []).map((row, r) => {
     const cells = row.map(id => {
       const n = S.map[id];
       const meta = NODE_META[n.type] || NODE_META.event;
-      const state = doneSet.has(id) ? "done" : (reachSet.has(id) ? "now" : "future");
+      const base = doneSet.has(id) ? "done" : (reachSet.has(id) ? "now" : "future");
+      // 已经走过但没选的分支：在当前行之上，且既不是已通过也不是可进入 → 画红叉
+      const state = (base === "future" && curRow >= 0 && n.row < curRow) ? "dead" : base;
       const canClick = reachSet.has(id);
+      const mark = state === "dead" ? `<span class="nx">✕</span>` : "";
       return `<div class="node ${state}" data-node="${id}" ${canClick ? `onclick="enterNode(${id})"` : ""} title="${canClick ? "点击进入" : ""}">
-        ${meta.ico}<span class="nlabel">${state === "done" ? "·" : meta.lbl(n)}</span>
+        ${meta.ico}<span class="nlabel">${state === "done" ? "·" : (state === "dead" ? "" : meta.lbl(n))}</span>${mark}
       </div>`;
     }).join(`<div class="branch-gap"></div>`);
     return `<div class="node-row branch-row">${r>0 ? `<div class="connector ${row.some(id=>reachSet.has(id))?'done':''}"></div>` : ""}
@@ -4139,13 +4152,15 @@ function colorizeChances(text, def){
   const st = stats();
   const dbl = S.items.some(i => i.def.id === 392 && !i.spent);
   // 不受幸运影响的道具（达摩剑的致死率、按敌人血量算的百分比等）
-  const locked = !!(def && def.pctLocked);
+  // 另外：大大大顺自己的描述、以及「按敌人血量算百分比」的描述也不该被改写
+  const locked = !!(def && (def.pctLocked || def.id === 392 ||
+    /敌人(的)?(当前)?血/.test(String(text || ""))));
   return esc(text).replace(/(\d+(?:\.\d+)?)%/g, (m, n) => {
     const base = parseFloat(n);
     if (locked) return `<span style="color:#b9b0c8">${base}%</span>`;
     let p = base / 100;
     if (dbl && p <= 0.5) p *= 2;
-    p = clamp(p + st.luck * 0.05, 0, 1);
+    p = Math.min(0.95, clamp(p + st.luck * 0.05, 0, 1));
     const v = Math.round(p * 100);
     if (v === base) return `<span style="color:#b9b0c8">${v}%</span>`;
     return `<span style="color:#57c99b;font-weight:700">${v}%</span>`;
