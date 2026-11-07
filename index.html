@@ -1629,17 +1629,8 @@ for (const d of ABILITY_ITEMS) ITEMS.push(d);
 
 /* ---------------- 新增道具（清单 8，负编号） ---------------- */
 const EXTRA_ITEMS = [
-  D(-30,"合同",2,"功能类","一次性：把你身上编号 1~14 的道具，变成对应编号的角色的能力（等级跟随原道具）。",{icon:"📜",draw:false,kind:"oneshot",
-    use:(a)=>{
-      const targets = S.items.filter(i => !i.spent && i.def.id >= 1 && i.def.id <= 14);
-      if (!targets.length){ log("合同：没有可转化的道具。","sys"); return; }
-      for (const it of targets){
-        const oldId = it.def.id;
-        destroyItem(it.uid);
-        a.addItem(-oldId);
-      }
-      log(`合同：${targets.length} 件道具被改写成了角色能力。`,"item");
-    }}),
+  D(-30,"合同",2,"功能类","本局内，道具库里编号 1~28 的道具会变成对应编号的角色的能力（等级跟随原道具）。",{icon:"📜",draw:false}),
+
   D(-31,"合成宝袋",2,"功能类","主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
     use:(a)=>{ openCraftBag(); }}),
   D(-32,"贪食无人机",2,"攻击类","每回合造成 a 次 b 伤害（初始 1 次 3 点）。主动：移除一件道具，选择 a+1 或 b+3。",{icon:"🛸",draw:false,
@@ -2784,6 +2775,15 @@ function newRun(charKey, seed){
 }
 
 let grantDepth = 0;
+
+/* 合同：持有期间，道具库里编号 1~28 的道具会被改写成对应角色的能力（-1 ~ -28） */
+function contractRewrite(id){
+  const n = Number(id);
+  if (!(n >= 1 && n <= CHARS.length)) return id;
+  if (!S.items || !S.items.some(i => i.def && i.def.id === -30 && !i.spent)) return id;
+  return -n;
+}
+
 function grantItem(id, opts={}){
   // 特别周：下一次获得的道具必定是 4 级
   if (S.nextItemGrade != null && !opts.allowDup){
@@ -2792,6 +2792,8 @@ function grantItem(id, opts={}){
     const gd = randomItemDef(g, g);
     if (gd) id = gd.id;
   }
+  // 合同：把编号 1~28 的道具改写为对应角色能力
+  id = contractRewrite(id);
   const def = ITEM_BY_ID.get(id);
   if (!def) return null;
   // 「只能持有 1 个」的道具：重复获得时改为其它道具
