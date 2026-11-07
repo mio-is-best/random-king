@@ -1496,7 +1496,15 @@ D(265,"解石化",4,"攻击类","一次性：选择一个 1~10 的数字，之�
     S.forcedRoll=v; log(`解石化：只能打出 ${v}`,"item"); }); }}),
 D(269,"烧舅",4,"攻击类","伤害 +8，血量回复 -15。",{icon:"🔥",mods:{addDmg:8,heal:-15}}),
 D(299,"控制台",1,"功能类","主动：获得任意一件道具。",{icon:"🖥️",draw:false,secret:true,
-  use:(a)=>{ a.pick(0,4,(id)=>a.addItem(id),"控制台 · 挑选道具"); }}),
+  use:(a)=>{
+    a.choose("道具控制台", "要拿哪一类道具？",
+      [{ name:"普通道具（0 ~ 4 级）", desc:"按等级挑选", icon:"📦" },
+       { name:"负编号道具", desc:"合同 / 合成宝袋 / 贪食无人机 / 赌命 等", icon:"➖" }],
+      (o, i) => {
+        if (i === 1) pickItem(0, 0, (id)=>a.addItem(id), "控制台 · 负编号道具", { negative:true });
+        else a.pick(0, 4, (id)=>a.addItem(id), "控制台 · 挑选道具");
+      });
+  }}),
 D(318,"弥达斯之触",4,"经济类","每造成 1 伤害，获得 1 金币。金币上限 -50。",{icon:"👑",mods:{goldCap:-50},
   hooks:{onAfterHit:(c,a)=>{ a.gold(Math.min(10,c.dmg)); }}}),
 D(331,"血量轰炸",4,"攻击类","启动：造成（当前血量）的伤害。",{icon:"🩸",
@@ -4332,6 +4340,7 @@ const CHANGELOG = [
       "修复：精英节点的样式会污染后面所有战斗节点；地图有时只有两列的宽度问题",
       "修复：火堆等非战斗节点偶尔被改成战斗/精英节点（去掉了会改写节点类型的补偿逻辑）",
       "修复：567 的「每通过一个节点 +1 刀片」没有触发",
+      "控制台现在也能取负编号道具（合同 / 合成宝袋 / 贪食无人机 / 赌命）",
     ],
   },
   {
@@ -5167,14 +5176,17 @@ function pickOwned(title, cb, filter){
 }
 
 /* 挑选道具面板：支持搜索与「按等级/按编号」排序 */
-function pickItem(gradeMin, gradeMax, cb, title){
+function pickItem(gradeMin, gradeMax, cb, title, opts){
   if (S.simulating) return;
+  opts = opts || {};
 
   // 编号 → 实际道具：合同 / 合成宝袋改写后，挑选界面也要显示、也要能搜到
   // 先按「格子原本的等级」筛，再套上显示层的改写
   // （合同会把 1~28 号显示成 -1 级的角色能力，不能因此被等级筛选踢掉）
-  const all = ITEMS
-    .filter(d => d.id > 0 && d.draw !== false && (d.grade || 0) >= gradeMin && (d.grade || 0) <= gradeMax)
+  const all = (opts.negative
+      ? ITEMS.filter(d => d.id <= -30)
+      : ITEMS.filter(d => d.id > 0 && d.draw !== false &&
+          (d.grade || 0) >= gradeMin && (d.grade || 0) <= gradeMax))
     .map(d0 => Object.assign({}, shownDef(d0.id) || d0, { slot: d0.id }));
   const ui = { q: "", sort: "grade" };
 
@@ -5184,7 +5196,7 @@ function pickItem(gradeMin, gradeMax, cb, title){
   div.innerHTML = `
     <div class="modal codex-modal">
       <h3>${esc(title || "挑选道具")}</h3>
-      <div class="msub">可选等级：${gradeMin} ~ ${gradeMax} 级</div>
+      <div class="msub">${opts.negative ? "负编号道具" : `可选等级：${gradeMin} ~ ${gradeMax} 级`}</div>
       <div class="codex-bar">
         <input id="pick-q" class="codex-search" type="search" placeholder="搜索编号 / 名字 / 效果…">
         <button class="btn ghost sm" id="pick-sort">按编号排</button>
