@@ -2508,7 +2508,6 @@ function winBattle(overflow){
     if (S.pendingDeath && S.hp <= 0){ gameOver(); return; }
     if (S.pendingDeath){ gameOver(); return; }
     if (S.depth >= lastFloor()){ victory(); return; }
-    if (S.battleElite){ S.battleElite = false; addLog("精英敌人掉落了宝箱！","good"); openChest(); return; }
     if (S.autoNext){
       advanceNode();                      // 自动：直接前往下一个节点
     } else {
@@ -2927,6 +2926,13 @@ function grantItem(id, opts={}){
 }
 
 function advanceNode(){
+  // 精英敌人结算：先开一次宝箱，再继续前进
+  if (S.battleElite){
+    S.battleElite = false;
+    addLog("精英敌人掉落了宝箱！","good");
+    enterChest();
+    return;
+  }
   settleBubble();          // 泡沫经济：进入下一关时收回
   const cur = S.map[S.nodeIdx];
   if (cur && !(S.mapDone || []).includes(S.nodeIdx)){
