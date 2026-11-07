@@ -1304,7 +1304,9 @@ D(90,"透支",1,"功能类","主动：随时回复血量，回复的血量将在
 D(58,"刀片",0,"功能类","拥有两个刀片时合成小刀。",{icon:"🔹",
   hooks:{onItemGain:(c,a)=>{ const n=S.items.filter(x=>x.def.id===58);
     if(n.length>=2){ a.removeItem(n[0].uid); a.removeItem(n[1].uid);
-      a.addItem(7); log("两个刀片合成了小刀！","good"); } }}}),
+      a.addItem(7);
+      try { localStorage.setItem("rk4_knife", String((parseInt(localStorage.getItem("rk4_knife")||"0",10)||0)+1)); } catch(e){}
+      log("两个刀片合成了小刀！","good"); } }}}),
 D(59,"磨刀石",0,"功能类","拥有的小刀额外 +3 伤害。",{icon:"🪨",
   dyn:(st)=>{ if(S.items.some(x=>x.def.id===7)) st.addDmg += 3*S.items.filter(x=>x.def.id===59).length; }}),
 D(104,"以旧换新原型机",3,"功能类","主动：移除一件道具，并因此获得一件随机道具。",{icon:"🔄",
@@ -4212,9 +4214,9 @@ const ACHIEVEMENTS = [
   { id:"deepest",    name:"深渊探索者", desc:"到达第 12 层" },
   { id:"deathnote",  name:"死神之证",   desc:"所有角色各通关 5 次，解锁死亡证明" },
   { id:"c_rich",     name:"第一桶金",   desc:"单局金币达到 60",                    char:"rich" },
-  { id:"c_567",      name:"数字人生",   desc:"单局掷骰攻击 30 次",                char:"n567" },
+  { id:"c_567",      name:"磨刀人",     desc:"累计合成小刀 10 次（可跨局累计）",   char:"n567" },
   { id:"c_miner",    name:"见矿就挖",   desc:"单局拥有 6 件以上道具",              char:"miner" },
-  { id:"c_tester",   name:"压力测试",   desc:"单局使用 12 次主动道具",             char:"tester" },
+  { id:"c_tester",   name:"压力测试",   desc:"单局使用 50 次主动道具",             char:"tester" },
   { id:"c_apollyon", name:"一次性的艺术", desc:"单局使用 5 件一次性道具",          char:"apollyon" },
   { id:"c_boss",     name:"人员管理",   desc:"单局同时拥有 10 件道具",             char:"boss" },
   { id:"c_cain",     name:"回收站",     desc:"单局销毁 3 件自己的道具",            char:"cain" },
@@ -4223,7 +4225,7 @@ const ACHIEVEMENTS = [
   { id:"c_mechanic", name:"装备齐全",   desc:"单局同时拥有 4 件 3 级以上道具",     char:"mechanic" },
   { id:"c_grower",   name:"星光初现",   desc:"任意角色达到 2 星",                  char:"grower" },
   { id:"c_ghost2",   name:"命不该绝",   desc:"单局从 1 点血量赢下 2 场战斗",       char:"ghost2" },
-  { id:"c_engineer", name:"火力覆盖",   desc:"单场战斗内累计造成 60 点以上伤害",   char:"engineer" },
+  { id:"c_engineer", name:"炮塔养成",   desc:"单局内把炮塔的 α 养到 6、β 养到 7",  char:"engineer" },
   { id:"c_bomber",   name:"爆破专家",   desc:"单次攻击造成 100 点以上伤害",        char:"bomber" },
 ];
 
@@ -4273,9 +4275,11 @@ function checkAchievements(){
 
     // ---- 角色解锁成就 ----
     if (S.gold >= 60) unlockAch("c_rich");
-    if ((S.cAttack || 0) >= 30) unlockAch("c_567");
+    let knifeN = 0;
+    try { knifeN = parseInt(localStorage.getItem("rk4_knife") || "0", 10) || 0; } catch(e){}
+    if (knifeN >= 10) unlockAch("c_567");
     if (S.items.length >= 6) unlockAch("c_miner");
-    if ((S.cActive || 0) >= 12) unlockAch("c_tester");
+    if ((S.cActive || 0) >= 50) unlockAch("c_tester");
     if ((S.cOneshot || 0) >= 5) unlockAch("c_apollyon");
     if (S.items.length >= 10) unlockAch("c_boss");
     if ((S.cDestroy || 0) >= 3) unlockAch("c_cain");
@@ -4284,7 +4288,7 @@ function checkAchievements(){
     if (S.items.filter(i => (i.def.grade || 0) >= 3).length >= 4) unlockAch("c_mechanic");
     if (maxCharStars() >= 2) unlockAch("c_grower");
     if ((S.cLow1Win || 0) >= 2) unlockAch("c_ghost2");
-    if ((S.battleDmg || 0) >= 60) unlockAch("c_engineer");
+    if (S.items.some(i => i.def.id === 280 && (i.alpha || 1) >= 6 && (i.beta || 1) >= 7)) unlockAch("c_engineer");
     if ((S.maxHit || 0) >= 100) unlockAch("c_bomber");
   } catch(e){}
 }
