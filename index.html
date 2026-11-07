@@ -1622,7 +1622,7 @@ const ABILITY_ITEMS = [
   D(-26,"角色能力 · 里游魂",-1,"功能类","伤害 +3，获得赌命。",{icon:"👤",draw:false,mods:{addDmg:3},
     hooks:{onAcquire:(c,a)=>{ a.addItem(-33); }}}),
   D(-27,"角色能力 · 工程师",-1,"功能类","获得炮塔，初始 α 与 β 均为 2。",{icon:"🛠️",draw:false,
-    hooks:{onAcquire:(c,a)=>{ a.addItem(280); }}}),
+    hooks:{onAcquire:(c,a)=>{ const t=a.addItem(280); if(t){ t.alpha=2; t.beta=2; } }}}),
   D(-28,"角色能力 · 炸弹人",-1,"攻击类","获得四种轰炸。",{icon:"💣",draw:false,
     hooks:{onAcquire:(c,a)=>{ a.addItem(331); a.addItem(305); a.addItem(344); a.addItem(345); }}}),
 ];
