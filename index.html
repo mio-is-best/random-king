@@ -4227,7 +4227,15 @@ function bindAccountButtons(){
       await cloudSyncAfterLogin();
       afterStateChange();
       openAccount();
-    } catch(e){ msg("登录失败：" + e.message, true); busy(false); }
+    } catch(e){
+      const m = String(e.message || "");
+      if (/not confirmed|Email not confirmed/i.test(m)){
+        msg("这个账号还没验证邮箱。去邮箱点确认链接，或在 Supabase 后台关掉 Confirm email", true);
+      } else {
+        msg("登录失败：" + m, true);
+      }
+      busy(false);
+    }
   };
 
   const reg = document.getElementById("acc-reg");
@@ -4243,7 +4251,7 @@ function bindAccountButtons(){
         afterStateChange();
         openAccount();
       } else {
-        msg("注册成功，但服务器要求先验证邮箱；可以直接点「登 录」试试", false);
+        msg("注册成功。服务器仍开着邮箱验证：要么去邮箱点确认，要么在 Supabase 后台把 Confirm email 关掉", false);
         busy(false);
       }
     } catch(e){ msg("注册失败：" + e.message, true); busy(false); }
@@ -4279,6 +4287,7 @@ const CHANGELOG = [
       "确立开发规则：此后每次改动都会同步更新日志",
       "注册流程优化：注册后自动尝试登录，不再强制去邮箱点确认链接",
       "更新日志可以展开查看每一批清单的逐条明细（9 批共 177 条）",
+      "注册/登录的提示更明确：区分「密码错误」和「邮箱未验证」",
     ],
   },
   {
