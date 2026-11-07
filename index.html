@@ -2211,6 +2211,7 @@ function resolveRolledAttack(c){
   if ((S.maxHit || 0) < dmg) S.maxHit = dmg;
   S.cAttack = (S.cAttack || 0) + 1;
   S.battleDmg = (S.battleDmg || 0) + dmg;
+  try { checkAchievements(); } catch(e){}   // 单次/单场伤害类成就要在命中瞬间判定
   B.attacksLeft--;
   B.attackNo = (B.attackNo || 0) + 1;
   S.busy = false;
@@ -2460,6 +2461,8 @@ function winBattle(overflow){
       renderBattle();
     }
   }, 900);
+
+  try { checkAchievements(); } catch(e){}   // 打赢后立刻判定成就（这条路径不走 afterStateChange）
 }
 
 /* 击杀后手动离开战斗界面 */
