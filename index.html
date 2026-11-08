@@ -3033,7 +3033,8 @@ function grantItem(id, opts={}){
   // 合成宝袋：把编号拆成 3 个数字存进去（宝袋自己给的道具除外）
   const isCain = !!(S.char && S.char.key === "cain");
   let eaten = false;                 // 被合成宝袋吃掉的道具不应再生效
-  if (isCain && !opts.fromBag && !opts.fromConsole && id > 0 && id !== 299 && slotNo !== 299){
+  // 名字叫「控制台」的道具不拆（按名字判断，不依赖编号）
+  if (isCain && !opts.fromBag && !opts.fromConsole && id > 0 && def.name !== "控制台"){
     try {
       if (bagStoreItem(id)){
         // 里该隐：道具直接被袋子吃掉，不留在身上；日志只报拆出来的数字
@@ -4612,7 +4613,7 @@ const CHANGELOG = [
       "修复：情报里该隐的推荐现在完全按道具图鉴显示，且合成结果与推荐一致",
       "修复：金币为 0 且没有信用卡时，花钱仍会被扣成负数（现在只有负债结算能扣成负数）",
       "修复：合成宝袋会把「控制台」也拆掉（现在控制台不参与编号打乱、也不会被吃）",
-      "通过控制台拿到的道具也不会被宝袋拆解",
+      "通过控制台拿到的道具也不会被宝袋拆解（判定改为按名字「控制台」识别，不看编号）",
     ],
   },
   {
