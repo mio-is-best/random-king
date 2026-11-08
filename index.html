@@ -2994,11 +2994,13 @@ function grantItem(id, opts={}){
   if (grantDepth > 8) return it;
   // 合成宝袋：把编号拆成 3 个数字存进去（宝袋自己给的道具除外）
   const isCain = !!(S.char && S.char.key === "cain");
+  let eaten = false;                 // 被合成宝袋吃掉的道具不应再生效
   if (isCain && !opts.fromBag && id > 0 && id !== 299){
     try {
       if (bagStoreItem(id)){
         // 里该隐：道具直接被袋子吃掉，不留在身上；日志只报拆出来的数字
         destroyItem(it.uid, true);
+        eaten = true;
         const str = String(id).padStart(3, "0").slice(-3);
         log(`获得了 ${str.split("").join("、")} 数字`, "item");
       }
@@ -3006,11 +3008,11 @@ function grantItem(id, opts={}){
   }
   grantDepth++;
   try {
-    if (def.hooks && def.hooks.onAcquire){
+    if (!eaten && def.hooks && def.hooks.onAcquire){
       def.hooks.onAcquire({}, api(it, stats()));
       if (def.consumeOn === "onAcquire") destroyItem(it.uid);
     }
-    if (grantDepth <= 6) fireHook("onItemGain", { def });
+    if (!eaten && grantDepth <= 6) fireHook("onItemGain", { def });
   } finally {
     grantDepth--;
   }
@@ -4568,6 +4570,7 @@ const CHANGELOG = [
       "局内菜单不再放「更新日志 / 新手教程 / 账号 / 玩法说明」，标题页菜单保留这些入口",
       "修复：切换高难模式等操作会重置已选角色（现在会记住上次选择）",
       "地图新增涂鸦：画笔 / 橡皮 / 清空三个圆按钮，轨迹会随地图一起滚动",
+      "修复：里该隐拆掉的「获得时生效」道具会先生效一次（现在被拆掉就不再生效）",
     ],
   },
   {
