@@ -1506,7 +1506,8 @@ D(265,"解石化",4,"攻击类","一次性：选择一个 1~10 的数字，之�
 D(269,"烧舅",4,"攻击类","伤害 +8，血量回复 -15。",{icon:"🔥",mods:{addDmg:8,heal:-15}}),
 D(299,"控制台",1,"功能类","主动：获得任意一件道具。",{icon:"🖥️",draw:false,secret:true,
   use:(a)=>{
-    pickItem(0, 4, (id)=>a.addItem(id), "控制台 · 挑选道具", { all:true });
+    pickItem(0, 4, (id)=>grantItem(id, { silent:true, fromConsole:true }),
+             "控制台 · 挑选道具", { all:true });
   }}),
 D(318,"弥达斯之触",4,"经济类","每造成 1 伤害，获得 1 金币。金币上限 -50。",{icon:"👑",mods:{goldCap:-50},
   hooks:{onAfterHit:(c,a)=>{ a.gold(Math.min(10,c.dmg)); }}}),
@@ -2956,7 +2957,8 @@ function shownDef(id){
    S.shuffleMap: 编号 -> 实际道具编号
    ============================================================ */
 function shuffleItemIds(){
-  const ids = ITEMS.filter(i => i.id > 0 && (i.grade || 0) >= 0).map(i => i.id);
+  // 控制台(299)不参与打乱：它是工具，不该被换成别的道具
+  const ids = ITEMS.filter(i => i.id > 0 && i.id !== 299 && (i.grade || 0) >= 0).map(i => i.id);
   const pool = ids.slice();
   // Fisher-Yates
   for (let i = pool.length - 1; i > 0; i--){
@@ -3031,7 +3033,7 @@ function grantItem(id, opts={}){
   // 合成宝袋：把编号拆成 3 个数字存进去（宝袋自己给的道具除外）
   const isCain = !!(S.char && S.char.key === "cain");
   let eaten = false;                 // 被合成宝袋吃掉的道具不应再生效
-  if (isCain && !opts.fromBag && id > 0 && id !== 299){
+  if (isCain && !opts.fromBag && !opts.fromConsole && id > 0 && id !== 299 && slotNo !== 299){
     try {
       if (bagStoreItem(id)){
         // 里该隐：道具直接被袋子吃掉，不留在身上；日志只报拆出来的数字
@@ -4609,6 +4611,8 @@ const CHANGELOG = [
       "修复：里该隐拆掉的「获得时生效」道具会先生效一次（现在被拆掉就不再生效）",
       "修复：情报里该隐的推荐现在完全按道具图鉴显示，且合成结果与推荐一致",
       "修复：金币为 0 且没有信用卡时，花钱仍会被扣成负数（现在只有负债结算能扣成负数）",
+      "修复：合成宝袋会把「控制台」也拆掉（现在控制台不参与编号打乱、也不会被吃）",
+      "通过控制台拿到的道具也不会被宝袋拆解",
     ],
   },
   {
