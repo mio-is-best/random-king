@@ -1524,7 +1524,7 @@ D(36,"虚空",4,"功能类","主动：移除一件道具，移除时永久 +2 �
   use:(a)=> a.pickOwned("虚空 · 移除道具",(uid)=>{ a.removeItem(uid); a.perm("addDmg",2); a.perm("hpMax",5); })}),
 D(61,"垃圾制造",4,"功能类","启动：挑选一个 0~2 级道具。",{icon:"🗑️",
   hooks:{onBattleStart:(c,a)=>{ a.pick(0,2,(id)=>a.addItem(id),"垃圾制造 · 挑选道具"); }}}),
-D(66,"无瑕圣心",4,"功能类","属性不会再下降。",{icon:"💗",
+D(66,"无瑕圣心",4,"功能类","属性不会再降低：永久属性不会减少，临时属性（本回合/本场）也不会消失，相当于永久保留。",{icon:"💗",
   hooks:{onAcquire:()=>{ S.noDecrease=true; }}}),
 D(205,"舅产",4,"功能类","获得时从 21 件指定道具中随机获得一个。",{icon:"🏹",
   hooks:{onAcquire:(c,a)=>{
@@ -2117,9 +2117,24 @@ function api(item, st){
         item.grown[k] = (item.grown[k] || 0) + n;
       }
     },
-    temp: (k, n) => { if (S.battle) S.battle.temp[k] = (S.battle.temp[k]||0) + n; },
+    temp: (k, n) => {
+      // 无瑕圣心：临时属性不再消失 → 直接记成永久
+      if (S.noDecrease){
+        if (k === "mult"){ S.perm.mult = (S.perm.mult ?? 1) * n; }
+        else S.perm[k] = (S.perm[k]||0) + n;
+        return;
+      }
+      if (S.battle) S.battle.temp[k] = (S.battle.temp[k]||0) + n;
+    },
     // 回合内属性：只在本回合有效，进入下一回合时清空（用于写明「本回合 / 这回合」的效果）
-    tempRound: (k, n) => { if (S.battle) S.battle.roundTemp[k] = (S.battle.roundTemp[k]||0) + n; },
+    tempRound: (k, n) => {
+      if (S.noDecrease){
+        if (k === "mult"){ S.perm.mult = (S.perm.mult ?? 1) * n; }
+        else S.perm[k] = (S.perm[k]||0) + n;
+        return;
+      }
+      if (S.battle) S.battle.roundTemp[k] = (S.battle.roundTemp[k]||0) + n;
+    },
     destroySelf: () => destroyItem(item.uid),
     spend: () => spendItem(item),
     once: (flag) => { if (S.battle){ if (S.battle.flags[flag]) return false; S.battle.flags[flag] = true; } return true; },
@@ -3420,43 +3435,90 @@ function openStatDetail(key){
   const total = st[key];
   const isMult = (key === "mult" || key === "enemyMult" || key === "healMult" || key === "priceMult");
   const rows = [];
-  const add = (name, v, mark) => { if (v) rows.push({ name, v, mark }); };
+  let acc = isMult ? 1 : 0;
+  const add = (name, v, group) => {
+    if (!v) return;
+    rows.push({ name, v, mark: isMult ? "×" : "", group });
+    acc = isMult ? acc * v : acc + v;
+  };
 
+  // 1. 基础
   if (key in BASE_STATS){
     const b = BASE_STATS[key];
-    if (isMult ? b !== 1 : !!b) add("基础值", b, isMult ? "×" : "");
+    if (isMult ? b !== 1 : !!b) add("基础值", b, "base");
   }
-  if (key === "hpMax" && S.char) add(`角色血量（${S.char.name}）`, (S.char.hpRolled ?? S.char.hp), "");
-  if (S.perm && S.perm[key] && !(key in BASE_STATS && S.perm[key] === BASE_STATS[key])) add("永久成长", S.perm[key], isMult ? "×" : "");
+  if (key === "hpMax" && S.char) add(`角色血量（${S.char.name}）`, (S.char.hpRolled ?? S.char.hp), "base");
 
+  // 2. 道具直接提供的属性
   for (const it of S.items){
     if (it.spent) continue;
     const m = it.mods || it.def.mods;
     if (!m || m[key] == null) continue;
-    if (isMult){ if (m[key] !== 1) add(itName(it), m[key], "×"); }
-    else if (m[key]) add(itName(it), m[key], "");
+    if (isMult){ if (m[key] !== 1) add(itName(it), m[key], "item"); }
+    else if (m[key]) add(itName(it), m[key], "item");
   }
 
-  let sum = isMult ? 1 : 0;
-  for (const r of rows) sum = (r.mark === "×") ? sum * r.v : sum + r.v;
-  const rest = isMult ? (sum ? Math.round((total / sum) * 100) / 100 : 1) : Math.round(total - sum);
+  // 3. 永久成长：按道具拆开（a.perm 会记录到 item.grown）
+  let grownSum = 0;
+  for (const it of S.items){
+    if (it.spent || !it.grown) continue;
+    const g = it.grown[key];
+    if (!g) continue;
+    grownSum += g;
+    rows.push({ name: `${itName(it)} · 永久成长`, v: g, mark: isMult ? "×" : "", group: "grow" });
+    acc = isMult ? acc * g : acc + g;
+  }
+  const permTotal = (S.perm && S.perm[key]) || 0;
+  const permRest = isMult ? (permTotal && grownSum ? permTotal / grownSum : (permTotal || 0)) : (permTotal - grownSum);
+  const permRestShown = isMult ? Math.round(permRest * 100) / 100 : permRest;
+  if (permRestShown && Math.abs(permRestShown - (isMult ? 1 : 0)) > 0.001){
+    rows.push({ name: "其他永久成长（角色能力 / 事件）", v: permRestShown, mark: isMult ? "×" : "", group: "grow" });
+    acc = isMult ? acc * permRestShown : acc + permRestShown;
+  }
+
+  // 4. 技能 / 道具动态效果（dyn）：逐个跑一遍估算贡献
+  for (const it of S.items){
+    if (it.spent || typeof it.def.dyn !== "function") continue;
+    try {
+      const probe = Object.assign({}, st);
+      probe[key] = isMult ? 1 : 0;
+      const before = probe[key];
+      it.def.dyn(probe);
+      const after = probe[key];
+      const contrib = isMult ? (before ? after / before : after) : (after - before);
+      if (isMult ? Math.abs(contrib - 1) > 0.001 : Math.abs(contrib) > 0.001){
+        rows.push({ name: `${itName(it)} · 技能效果`, v: Math.round(contrib*100)/100, mark: isMult ? "×" : "", group: "skill" });
+        acc = isMult ? acc * contrib : acc + contrib;
+      }
+    } catch(e){}
+  }
+
+  // 5. 剩下的归入「规则 / 无法细分」
+  const rest = isMult ? (acc ? Math.round((total / acc) * 100) / 100 : 1) : Math.round(total - acc);
   const restIsNone = isMult ? Math.abs(rest - 1) < 0.001 : rest === 0;
 
-  const fmt = (r) => (r.mark === "×")
-    ? `<span style="color:var(--dim)">×${round2(r.v)}</span>`
-    : `<span style="color:${r.v > 0 ? "#7fdcaa" : "#e07a7a"}">${sgn(r.v)}</span>`;
+  const groupName = { base:"基础", item:"道具属性", grow:"永久成长", skill:"技能 / 动态效果" };
+  const order = ["base", "item", "grow", "skill"];
+  const rowsHTML = order.map(g => {
+    const list = rows.filter(r => r.group === g);
+    if (!list.length) return "";
+    return `<div style="margin:10px 0 4px;font-size:11px;letter-spacing:.16em;color:var(--gold-dim)">${groupName[g]}</div>`
+      + list.map(r => `
+        <div class="modal-row" style="padding:5px 8px">
+          <div style="flex:1;font-size:13px">${esc(r.name)}</div>
+          <div class="num" style="font-size:13px">${r.mark === "×"
+            ? `<span style="color:var(--dim)">×${round2(r.v)}</span>`
+            : `<span style="color:${r.v > 0 ? "#7fdcaa" : "#e07a7a"}">${sgn(r.v)}</span>`}</div>
+        </div>`).join("");
+  }).join("");
 
   modalShell(`
     <h3>${STAT_NAMES[key] || key} 的构成</h3>
     <div class="msub">当前结算值：<b style="color:var(--gold)">${isMult ? "×" + round2(total) : total}</b></div>
-    ${rows.length ? rows.map(r => `
-      <div class="modal-row" style="padding:6px 8px">
-        <div style="flex:1;font-size:13px">${esc(r.name)}</div>
-        <div class="num" style="font-size:13px">${fmt(r)}</div>
-      </div>`).join("") : `<div class="empty-note">没有来自道具的加成</div>`}
+    ${rowsHTML || `<div class="empty-note">没有可细分的来源</div>`}
     ${restIsNone ? "" : `
-      <div class="modal-row" style="padding:6px 8px;border-top:1px solid #2c2540">
-        <div style="flex:1;font-size:13px;color:var(--dim)">技能 / 规则效果</div>
+      <div class="modal-row" style="padding:6px 8px;border-top:1px solid #2c2540;margin-top:6px">
+        <div style="flex:1;font-size:13px;color:var(--dim)">技能 / 规则效果（其他）</div>
         <div class="num" style="font-size:13px">${isMult ? `×${round2(rest)}` : sgn(rest)}</div>
       </div>`}
     <div class="modal-close"><button class="btn sm" onclick="closeModal()">关 闭</button></div>`);
@@ -3528,8 +3590,8 @@ function openMenu(){
     <div class="modal-row" style="cursor:pointer" onclick="toggleRepeatPrompt()">
       <div class="mi">🔁</div>
       <div style="flex:1">
-        <div class="mn">花 1 金币的主动道具：<span style="color:var(--gold)">${S.repeatPrompt ? "弹窗问次数" : "点一次用一次"}</span></div>
-        <div class="md">开启后，点金拳这类道具会先问你要用几次，然后连续结算。</div>
+        <div class="mn">不会弹窗的主动道具：<span style="color:var(--gold)">${S.repeatPrompt ? "弹窗问使用次数" : "点一次用一次"}</span></div>
+        <div class="md">开启后，点这类道具会先问你要用几次再连续结算；本身会弹窗选目标/数额的道具不受影响。</div>
       </div>
       <div style="align-self:center">
         <div style="width:44px;height:22px;border-radius:999px;border:1px solid ${S.repeatPrompt ? "#7a5c1e" : "#4a3f63"};
@@ -4174,6 +4236,15 @@ function invHTML(){
     </div>`).join("");
 }
 
+
+/* 这个主动道具的 use 自己会不会弹窗（弹窗类不适合「问次数」） */
+function itemOpensModal(it){
+  try {
+    const src = String(it.def.use || "");
+    return /promptNum|\.pick\(|\.choose\(|pickOwned|openCraftBag|promptNumber|chooseOne|pickItem|promptDiff/.test(src);
+  } catch(e){ return false; }
+}
+
 /* 使用道具：主动道具单击图标，一次性道具双击图标 */
 function useItem(uid){
   const it = S.items.find(x => x.uid == uid);
@@ -4184,8 +4255,11 @@ function useItem(uid){
   if (S._lastUse && S._lastUse.uid == it.uid && now - S._lastUse.t < 220) return;
   S._lastUse = { uid: it.uid, t: now };
   // 「花费 1 金币的主动」可以设置成弹窗问用几次
-  if (S.repeatPrompt && it.def.costGold === 1 && !S._repeatRunning){
-    const max = Math.max(1, Math.min(10, Math.floor((S.gold - goldFloor()) / 1)));
+  if (S.repeatPrompt && !S._repeatRunning && !itemOpensModal(it)){
+    const per = Math.max(1, it.def.costGold || 0);
+    const max = per > 0
+      ? Math.max(1, Math.min(10, Math.floor((S.gold - goldFloor()) / per)))
+      : 10;
     if (max > 1){
       promptNumber("使用几次", `这个道具每次花 ${it.def.costGold} 金币，最多 ${max} 次`, 1, max, (n) => {
         S._repeatRunning = true;
