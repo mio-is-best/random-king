@@ -2156,7 +2156,7 @@ function goldFloor(){
   return n ? -20 * n : 0;
 }
 /* 是否付得起 n 金币（有信用卡时可以先花到负数） */
-function canPay(n){ return true; }   // 金币允许为负，不再挡购买
+function canPay(n){ return S.gold - n >= goldFloor(); }   // 信用卡决定能欠多少（默认 0）
 
 /* 花金币：不稳定促销会把这次的消耗量随机乘 [0,2] 倍 */
 function spendGold(cost){
@@ -2166,7 +2166,7 @@ function spendGold(cost){
     pay = Math.round(pay * m);
     log(`不稳定促销：本次消耗 ${pay} 金币（原价 ${cost}）`, m === 0 ? "good" : (m > 1 ? "hurt" : "sys"));
   }
-  S.gold = S.gold - pay;                   // 花钱也不设下限
+  S.gold = Math.max(goldFloor(), S.gold - pay);   // 只能花到信用卡允许的下限
   // 泡沫经济：花掉的这部分就不用还了
   if (S.bubbleDebt > 0) S.bubbleDebt = Math.max(0, S.bubbleDebt - pay);
   fireHook("onSpend", { amount: pay });
@@ -2202,8 +2202,9 @@ function gainGold(n){
   if (S.noGoldGain || st.noGoldGain) amt = -Math.abs(amt);
   {
     let g = S.gold + amt;
-    if (g > st.goldCap) g = st.goldCap;   // 上限只限制正数
-    S.gold = g;                            // 负数不设下限
+    if (g > st.goldCap) g = st.goldCap;            // 上限只限制正数
+    if (g < goldFloor()) g = goldFloor();          // 下限由信用卡决定（默认 0）
+    S.gold = g;
   }
   if (amt > 0) S.totalGold += amt;
   if (amt) addLog(amt > 0 ? `获得 ${amt} 金币（${S.gold}/${st.goldCap}）` : `失去 ${-amt} 金币`, amt > 0 ? "gold" : "hurt");
@@ -4607,6 +4608,7 @@ const CHANGELOG = [
       "地图新增涂鸦：画笔 / 橡皮 / 清空三个圆按钮，轨迹会随地图一起滚动",
       "修复：里该隐拆掉的「获得时生效」道具会先生效一次（现在被拆掉就不再生效）",
       "修复：情报里该隐的推荐现在完全按道具图鉴显示，且合成结果与推荐一致",
+      "修复：金币为 0 且没有信用卡时，花钱仍会被扣成负数（现在只有负债结算能扣成负数）",
     ],
   },
   {
