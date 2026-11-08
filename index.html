@@ -3465,13 +3465,6 @@ function openMenu(){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
       <button class="btn ghost block" onclick="openRules()">玩 法 说 明</button>
-      <div class="modal-row" style="cursor:pointer" onclick="toggleCainIntel()">
-        <div class="mi">🧠</div>
-        <div style="flex:1">
-          <div class="mn">情报里该隐模式：<span style="color:${cainIntel() ? "var(--gold)" : "#8d849b"}">${cainIntel() ? "开" : "关"}</span></div>
-          <div class="md">开启后，合成宝袋界面会直接列出当前数字能拼出的所有道具。</div>
-        </div>
-      </div>
       <button class="btn ghost block" onclick="openAccount()">☁️ 账 号 / 云 存 档</button>
       <button class="btn ghost block" onclick="startTutorial()">新 手 教 程</button>
       <button class="btn ghost block" onclick="openChangelog()">更 新 日 志</button>
@@ -4447,6 +4440,7 @@ const CHANGELOG = [
       "合成宝袋：打乱编号后，身上的道具与悬浮窗会显示「图鉴编号」，和合成结果对得上",
       "里该隐吃到道具时，日志只显示拆出来的数字",
       "设置新增「情报里该隐模式」：宝袋界面直接列出当前数字能合成的全部道具",
+      "修复：情报里该隐模式开关在菜单里出现了两次",
     ],
   },
   {
