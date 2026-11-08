@@ -4281,14 +4281,29 @@ function useItem(uid){
         : `最多连续使用 ${max} 次`;
       promptNumber("使用几次", subText, 1, max, (n) => {
         S._repeatRunning = true;
+        const mark = S.log.length;          // 记下起始位置，最后合并成一行
+        let used = 0;
         try {
           for (let i = 0; i < n; i++){
             const cur = S.items.find(x => x.uid == uid);
             if (!cur) break;
             S._lastUse = null;
             useItem(uid);
+            used++;
           }
-        } finally { S._repeatRunning = false; }
+        } finally {
+          S._repeatRunning = false;
+          // 合并日志：只留一行「道具名（使用 n 次）」
+          if (used > 0){
+            S.log.length = Math.min(S.log.length, mark);
+            log(`${itName(it)}（使用 ${used} 次）`, "item");
+            const box = $("#logbox");
+            if (box) box.innerHTML = S.log.slice(-60).map(l =>
+              `<div class="l ${l.cls}"><span class="t">·</span><span class="m">${l.msg}</span></div>`
+            ).join("");
+            afterStateChange();
+          }
+        }
       });
       return;
     }
@@ -4755,6 +4770,7 @@ const CHANGELOG = [
           "修复：钝刀片不回复血量、也不写日志",
       "修复：不花金币的主动道具，问次数时显示「花费 undefined 金币」",
       "修复：不花金币的主动道具点了不弹「问使用次数」（被当成了每次 1 金币）",
+      "连续使用同一道具时，日志合并成一行「道具名（使用 N 次）」，不再刷屏卡顿",
 ],
   },
   {
