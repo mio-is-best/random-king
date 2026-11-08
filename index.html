@@ -4261,7 +4261,8 @@ function useItem(uid){
   if (S._lastUse && S._lastUse.uid == it.uid && now - S._lastUse.t < 220) return;
   S._lastUse = { uid: it.uid, t: now };
   // 「花费 1 金币的主动」可以设置成弹窗问用几次
-  if (S.repeatPrompt && !S._repeatRunning && !itemOpensModal(it)){
+  // 只对「主动道具」问次数；一次性道具（双击使用）不弹这个窗
+  if (S.repeatPrompt && !S._repeatRunning && it.def.kind !== "oneshot" && !itemOpensModal(it)){
     const per = Math.max(1, it.def.costGold || 0);
     const max = per > 0
       ? Math.max(1, Math.min(10, Math.floor((S.gold - goldFloor()) / per)))
