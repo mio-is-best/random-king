@@ -4091,7 +4091,8 @@ async function authRequest(path, body){
 async function doSignUp(email, password){
   const j = await authRequest("/signup", { email, password });
   if (j.access_token){
-    sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user });
+    sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user,
+              expires_at: Date.now() + (j.expires_in || 3600) * 1000 });
     return { ok: true, verified: true };
   }
   // 没直接给会话：可能只是没返回 token，先尝试立刻登录一次
@@ -4104,7 +4105,8 @@ async function doSignUp(email, password){
 
 async function doSignIn(email, password){
   const j = await authRequest("/token?grant_type=password", { email, password });
-  sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user });
+  sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user,
+            expires_at: Date.now() + (j.expires_in || 3600) * 1000 });
   return j.user;
 }
 
@@ -4136,8 +4138,34 @@ function applyBlob(data){
   } catch(e){ return false; }
 }
 
+
+/* 会话过期自动续期（Supabase access_token 默认 1 小时） */
+async function ensureSession(){
+  const ss = sessGet();
+  if (!ss || !ss.access_token) return false;
+  const exp = ss.expires_at || 0;
+  if (exp && Date.now() < exp - 60000) return true;
+  if (!ss.refresh_token){ sessSet(null); return false; }
+  try {
+    const r = await fetch(CLOUD.url + "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      headers: { "apikey": CLOUD.key, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: ss.refresh_token }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    sessSet({ access_token: j.access_token, refresh_token: j.refresh_token, user: j.user,
+              expires_at: Date.now() + (j.expires_in || 3600) * 1000 });
+    return true;
+  } catch(e){
+    sessSet(null);
+    return false;
+  }
+}
+
 async function cloudUpload(silent){
   if (!cloudReady() || !account()){ if(!silent) log("云存档：还没登录。","sys"); return false; }
+  if (!(await ensureSession())){ if(!silent) log("云存档：登录已过期，请重新登录。","hurt"); return false; }
   const u = account();
   const body = JSON.stringify([{ user_id: u.id, data: saveBlob(), updated_at: new Date().toISOString() }]);
   try {
@@ -4158,6 +4186,7 @@ async function cloudUpload(silent){
 
 async function cloudFetchMine(){
   if (!cloudReady() || !account()) return null;
+  if (!(await ensureSession())) return null;
   const u = account();
   try {
     const r = await fetch(`${CLOUD.url}/rest/v1/${CLOUD.table}?user_id=eq.${encodeURIComponent(u.id)}&select=*`, {
@@ -4211,6 +4240,37 @@ function cloudTouch(){
 }
 
 /* ---------------- 界面 ---------------- */
+
+function cloudMsg(text, bad){
+  const el = document.getElementById("cloud-msg");
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = bad ? "#e8524b" : "#57c99b";
+}
+
+function bindCloudButtons(){
+  const up = document.getElementById("cloud-up");
+  const down = document.getElementById("cloud-down");
+  const setBusy = (b) => { if (up) up.disabled = b; if (down) down.disabled = b; };
+  if (up) up.onclick = async () => {
+    setBusy(true); cloudMsg("上传中…");
+    const ok = await cloudUpload(true);
+    setBusy(false);
+    if (ok){
+      const n = Object.keys(saveBlob ? saveBlob() : {}).length;
+      cloudMsg("已上传 " + new Date().toLocaleTimeString("zh-CN") + "（" + n + " 项）");
+    } else {
+      cloudMsg(account() ? "上传失败：网络或权限问题，请重试" : "还没登录，先登录再上传", true);
+    }
+  };
+  if (down) down.onclick = async () => {
+    setBusy(true); cloudMsg("下载中…");
+    const ok = await cloudDownload(true);
+    setBusy(false);
+    if (!ok) cloudMsg("下载失败：云端没有存档或网络问题", true);
+  };
+}
+
 function openAccount(){
   if (!cloudReady()){
     modalShell(`<h3>☁️ 账号</h3>
@@ -4225,12 +4285,14 @@ function openAccount(){
     modalShell(`<h3>☁️ 账号</h3>
       <div class="msub">已登录：<b>${esc(u.email || u.id)}</b></div>
       <div class="seed-hint">上次上传：${last ? new Date(last).toLocaleString("zh-CN") : "从未上传"}</div>
+      <div id="cloud-msg" class="seed-hint" style="min-height:18px;color:var(--gold-dim)"></div>
       <div style="display:flex;gap:8px;margin:12px 0">
-        <button class="btn block" onclick="cloudUpload(false)">上 传</button>
-        <button class="btn block" onclick="cloudDownload(false)">下 载</button>
+        <button class="btn block" id="cloud-up">上 传</button>
+        <button class="btn block" id="cloud-down">下 载</button>
       </div>
       <button class="btn ghost block" onclick="doSignOut()">退 出 登 录</button>
       <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
+    bindCloudButtons();
     return;
   }
   modalShell(`<h3>☁️ 注册 / 登录</h3>
@@ -4341,6 +4403,7 @@ const CHANGELOG = [
       "控制台改为打开全量挑选界面：普通道具、负编号道具、角色能力都能选",
       "修复：精英战斗节点的图标被显示成火堆（现在保持剑图标，只保留头顶火苗）",
       "金币改为「只有上限、没有下限」：欠债/花钱可以直接扣成很负，不会被 100 的上限反过来卡在 -100",
+      "云存档：上传/下载按钮现在会显示进度与结果；登录过期会自动续期",
     ],
   },
   {
