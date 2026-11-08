@@ -3379,8 +3379,12 @@ function openTitleMenu(){
   modalShell(`<h3>菜 单</h3>
     <div class="msub">${u ? "已登录：" + esc(u.email || "") : "未登录（进度只存在本机）"}</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
-      <button class="btn block" onclick="closeModal(); openAchievements()">🏆 成 就</button>
+      <button class="btn block" onclick="closeModal(); openAccount()">☁️ 账 号 / 云 存 档</button>
+      <button class="btn ghost block" onclick="closeModal(); openAchievements()">🏆 成 就</button>
+      <button class="btn ghost block" onclick="closeModal(); openChangelog()">📜 更 新 日 志</button>
       <button class="btn ghost block" onclick="closeModal(); openCodex()">📖 道 具 图 鉴</button>
+      <button class="btn ghost block" onclick="closeModal(); openRules()">❓ 玩 法 说 明</button>
+      <button class="btn ghost block" onclick="closeModal(); startTutorial()">🎓 新 手 教 程</button>
     </div>
     <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
 }
@@ -3762,9 +3766,6 @@ function renderTitle(){
     <div style="text-align:center;margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
       <button class="btn" id="btn-start">开 始 冒 险</button>
       <button class="btn ghost" onclick="openRules()">玩 法 说 明</button>
-      <button class="btn ghost" onclick="openChangelog()">更 新 日 志</button>
-      <button class="btn ghost" onclick="openAccount()">账 号</button>
-      <button class="btn ghost" onclick="startTutorial()">新 手 教 程</button>
       <button class="btn ghost" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       ${maxCharStars() >= 3
@@ -4440,7 +4441,7 @@ const CHANGELOG = [
       "设置新增「情报里该隐模式」：宝袋界面直接列出当前数字能合成的全部道具",
       "修复：情报里该隐模式开关在菜单里出现了两次",
       "修复：里该隐拆解道具时，日志里还会多出一条「获得道具」",
-      "菜单里不再放「更新日志 / 新手教程 / 账号 / 玩法说明」，改为放在标题页底部按钮区",
+      "局内菜单不再放「更新日志 / 新手教程 / 账号 / 玩法说明」，标题页菜单保留这些入口",
     ],
   },
   {
