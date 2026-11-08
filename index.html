@@ -1820,6 +1820,30 @@ function openCraftBag(){
       sp.oncontextmenu = (e) => { e.preventDefault(); picked.splice(Number(sp.dataset.p), 1); render(); };
       sp.onclick = () => { picked.splice(Number(sp.dataset.p), 1); render(); };
     });
+
+    // 情报模式推荐的候选：点一下直接合成（数字已是实际编号，不再二次打乱）
+    div.querySelectorAll("[data-craft]").forEach(btn => {
+      btn.onclick = () => {
+        const num = Number(btn.dataset.craft);
+        const target = ITEMS.find(i => i.id === num && (i.grade || 0) >= 0);
+        if (!target) return;
+        const need = String(num).padStart(3, "0").split("").map(Number);
+        const bagNow = bagDigits();
+        const idxs = [];
+        for (const v of need){
+          const k = bagNow.findIndex((x, i2) => x === v && !idxs.includes(i2));
+          if (k < 0){ log(`袋子：数字不够了。`, "sys"); return; }
+          idxs.push(k);
+        }
+        idxs.sort((a, b) => b - a).forEach(k => bagNow.splice(k, 1));
+        picked = [];
+        grantItem(target.id, { fromBag:true, rawId:true });
+        log(`合成宝袋：合成了「${target.name}」。`,"good");
+        closeModal();
+        openCraftBag();
+        afterStateChange();
+      };
+    });
     const mk = div.querySelector("#bag-make");
     if (mk) mk.onclick = () => {
       if (picked.length !== 3) return;
@@ -1832,7 +1856,7 @@ function openCraftBag(){
         if (idx >= 0) bag.splice(idx, 1);
       }
       picked = [];
-      grantItem(target.id, { fromBag:true });
+      grantItem(target.id, { fromBag:true, rawId:true });
       log(`合成宝袋：合成了「${target.name}」。`,"good");
       closeModal();
       afterStateChange();
@@ -4571,6 +4595,7 @@ const CHANGELOG = [
       "修复：切换高难模式等操作会重置已选角色（现在会记住上次选择）",
       "地图新增涂鸦：画笔 / 橡皮 / 清空三个圆按钮，轨迹会随地图一起滚动",
       "修复：里该隐拆掉的「获得时生效」道具会先生效一次（现在被拆掉就不再生效）",
+      "修复：情报里该隐推荐的道具和实际合成出来的对不上（合成时不再二次打乱编号）",
     ],
   },
   {
