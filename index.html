@@ -3121,7 +3121,9 @@ function takeLoot(){
   if (!S.loot || S.loot.taken) return;
   S.loot.taken = true;
   const def = ITEM_BY_ID.get(S.loot.itemId);
-  if (def) log(`获得道具「${def.name}」`, "item");
+  const isCain = !!(S.char && S.char.key === "cain");
+  // 里该隐：道具会被袋子吃掉，只报数字，不报「获得道具」
+  if (def && !isCain) log(`获得道具「${def.name}」`, "item");
   grantItem(S.loot.itemId);
   advanceNode();
   renderAll();
@@ -4441,6 +4443,7 @@ const CHANGELOG = [
       "里该隐吃到道具时，日志只显示拆出来的数字",
       "设置新增「情报里该隐模式」：宝袋界面直接列出当前数字能合成的全部道具",
       "修复：情报里该隐模式开关在菜单里出现了两次",
+      "修复：里该隐拆解道具时，日志里还会多出一条「获得道具」",
     ],
   },
   {
