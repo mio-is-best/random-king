@@ -813,6 +813,30 @@ const BASE_STATS = {
   refreshPrice:2, priceMult:1, oneShotBonus:0, healOvercap:false, goldCap:100,
 };
 
+
+/* 无瑕圣心：临时属性到期时不消失，折进永久属性（命数除外） */
+const TEMP_SKIP_KEYS = new Set([ "hpMax", "hp", "itemDouble", "goldDouble", "noHeal",
+  "cannotAttack", "noShop", "enemyFirst", "noGoldGain" ]);
+function absorbTemps(B){
+  if (!S.noDecrease || !B) return;
+  const fold = (m) => {
+    if (!m) return;
+    for (const k in m){
+      const v = m[k];
+      if (!v || TEMP_SKIP_KEYS.has(k)) continue;
+      if (k === "mult" || k === "enemyMult" || k === "healMult"){
+        S.perm[k] = (S.perm[k] ?? 1) * v;
+      } else {
+        S.perm[k] = (S.perm[k] || 0) + v;
+      }
+    }
+  };
+  fold(B.temp);
+  fold(B.roundTemp);
+  B.temp = {};
+  B.roundTemp = {};
+}
+
 function stats(){
   const st = Object.assign({}, BASE_STATS);
   st.heal = BALANCE.heal;
@@ -1536,7 +1560,7 @@ D(36,"虚空",4,"功能类","主动：移除一件道具，移除时永久 +2 �
   use:(a)=> a.pickOwned("虚空 · 移除道具",(uid)=>{ a.removeItem(uid); a.perm("addDmg",2); a.perm("hpMax",5); })}),
 D(61,"垃圾制造",4,"功能类","启动：挑选一个 0~2 级道具。",{icon:"🗑️",
   hooks:{onBattleStart:(c,a)=>{ a.pick(0,2,(id)=>a.addItem(id),"垃圾制造 · 挑选道具"); }}}),
-D(66,"无瑕圣心",4,"功能类","属性不会再降低：永久属性不会减少，临时属性（本回合/本场）也不会消失，相当于永久保留。",{icon:"💗",
+D(66,"无瑕圣心",4,"功能类","属性不会再降低：永久属性不会减少；本回合 / 本场的临时属性（含伤害倍率）到期后转为永久，命数除外。",{icon:"💗",
   hooks:{onAcquire:()=>{ S.noDecrease=true; }}}),
 D(205,"舅产",4,"功能类","获得时从 21 件指定道具中随机获得一个。",{icon:"🏹",
   hooks:{onAcquire:(c,a)=>{
@@ -2009,6 +2033,7 @@ function makeEnemy(n){
 }
 
 function startBattle(idx, elite){
+  absorbTemps(S.battle);      // 无瑕圣心：上一场的临时加成转永久
   S.battleElite = !!elite;
   S.battleDmg = 0;   // 单场累计伤害
   S.awaitingContinue = false;
@@ -2129,24 +2154,9 @@ function api(item, st){
         item.grown[k] = (item.grown[k] || 0) + n;
       }
     },
-    temp: (k, n) => {
-      // 无瑕圣心：临时属性不再消失 → 直接记成永久
-      if (S.noDecrease){
-        if (k === "mult"){ S.perm.mult = (S.perm.mult ?? 1) * n; }
-        else S.perm[k] = (S.perm[k]||0) + n;
-        return;
-      }
-      if (S.battle) S.battle.temp[k] = (S.battle.temp[k]||0) + n;
-    },
+    temp: (k, n) => { if (S.battle) S.battle.temp[k] = (S.battle.temp[k]||0) + n; },
     // 回合内属性：只在本回合有效，进入下一回合时清空（用于写明「本回合 / 这回合」的效果）
-    tempRound: (k, n) => {
-      if (S.noDecrease){
-        if (k === "mult"){ S.perm.mult = (S.perm.mult ?? 1) * n; }
-        else S.perm[k] = (S.perm[k]||0) + n;
-        return;
-      }
-      if (S.battle) S.battle.roundTemp[k] = (S.battle.roundTemp[k]||0) + n;
-    },
+    tempRound: (k, n) => { if (S.battle) S.battle.roundTemp[k] = (S.battle.roundTemp[k]||0) + n; },
     destroySelf: () => destroyItem(item.uid),
     spend: () => spendItem(item),
     once: (flag) => { if (S.battle){ if (S.battle.flags[flag]) return false; S.battle.flags[flag] = true; } return true; },
@@ -2591,6 +2601,7 @@ function nextRound(){
   const B = S.battle;
   if (!B || B.over) return;
   B.round++;
+  absorbTemps(B);            // 无瑕圣心：回合效果转为永久
   B.roundTemp = {};          // 「本回合」类效果在这里失效
   B.hitCount = 0;
   fireHook("onRoundStart", { B });
@@ -4771,6 +4782,7 @@ const CHANGELOG = [
       "修复：不花金币的主动道具，问次数时显示「花费 undefined 金币」",
       "修复：不花金币的主动道具点了不弹「问使用次数」（被当成了每次 1 金币）",
       "连续使用同一道具时，日志合并成一行「道具名（使用 N 次）」，不再刷屏卡顿",
+      "无瑕圣心：临时伤害倍率等所有临时属性都会转为永久（命数除外）",
 ],
   },
   {
