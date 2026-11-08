@@ -4264,9 +4264,10 @@ function useItem(uid){
   // 只对「主动道具」问次数；一次性道具（双击使用）不弹这个窗
   if (S.repeatPrompt && !S._repeatRunning && it.def.kind !== "oneshot" && !itemOpensModal(it)){
     const per = Math.max(1, it.def.costGold || 0);
+    // 不设使用次数上限：花金币的按「付得起的次数」算，不花金币的给一个足够大的上限
     const max = per > 0
-      ? Math.max(1, Math.min(10, Math.floor((S.gold - goldFloor()) / per)))
-      : 10;
+      ? Math.max(1, Math.floor((S.gold - goldFloor()) / per))
+      : 999;
     if (max > 1){
       promptNumber("使用几次", `这个道具每次花 ${it.def.costGold} 金币，最多 ${max} 次`, 1, max, (n) => {
         S._repeatRunning = true;
