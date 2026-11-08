@@ -81,6 +81,8 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.itm .numtag{position:absolute;left:-2px;top:-2px;background:#2a2342;border:1px solid #4a3f63;
+  color:#b9b0c8;font-size:8px;line-height:1;padding:1px 3px;border-radius:6px;pointer-events:none}
 #title-menu-btn{position:fixed;top:14px;right:14px;z-index:40;width:42px;height:42px;border-radius:12px;
   display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--gold);cursor:pointer;
   background:linear-gradient(180deg,#221c33,#171223);border:1px solid #3a3150;user-select:none}
@@ -1716,6 +1718,38 @@ function bagStoreItem(id){
   return true;
 }
 
+
+/* 情报里该隐模式：宝袋界面直接列出当前数字能合成的全部道具 */
+function cainIntel(){ try { return localStorage.getItem("rk4_cain_intel") === "1"; } catch(e){ return false; } }
+function toggleCainIntel(){
+  const on = cainIntel();
+  try { localStorage.setItem("rk4_cain_intel", on ? "0" : "1"); } catch(e){}
+  closeModal();
+  openMenu();
+}
+
+/* 用袋子里的数字能拼出哪些道具（顺序有意义，按三位数算） */
+function bagCraftables(){
+  const bag = bagDigits().slice();
+  const out = [];
+  const seen = {};
+  for (let a = 0; a < bag.length; a++)
+    for (let b = 0; b < bag.length; b++){
+      if (b === a) continue;
+      for (let c = 0; c < bag.length; c++){
+        if (c === a || c === b) continue;
+        const num = bag[a]*100 + bag[b]*10 + bag[c];
+        if (seen[num]) continue;
+        const def = ITEMS.find(i => i.id === num && (i.grade || 0) >= 0);
+        if (!def) continue;
+        seen[num] = 1;
+        out.push({ num, def });
+        if (out.length >= 40) return out;
+      }
+    }
+  return out;
+}
+
 function openCraftBag(){
   const bag = bagDigits();
   if (!bag.length){
@@ -1747,6 +1781,14 @@ function openCraftBag(){
       </div>
       <div style="font-size:10.5px;color:var(--dim);text-align:center;margin:-4px 0 8px">左键添加 · 右键收回</div>
       <div style="display:flex;flex-wrap:wrap;justify-content:center;max-height:190px;overflow:auto">${chips}</div>
+      ${cainIntel() ? (() => {
+        const list = bagCraftables();
+        if (!list.length) return `<div class="seed-hint" style="margin-top:6px">当前数字还拼不出任何道具</div>`;
+        return `<div class="seed-label" style="margin-top:10px">情报里该隐 · 当前可合成</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto;margin-top:4px">
+            ${list.map(o => `<button class="btn ghost sm" data-craft="${o.num}">${esc(o.def.icon)} #${o.num} ${esc(o.def.name)}</button>`).join("")}
+          </div>`;
+      })() : ""}
       <div class="modal-close" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
         <button class="btn" id="bag-make" ${picked.length === 3 ? "" : "disabled"}>合 成</button>
         <button class="btn ghost" id="bag-clear">重 选</button>
@@ -2137,13 +2179,13 @@ function gainGold(n){
 }
 
 
-function destroyItem(uid){
+function destroyItem(uid, silent){
   S.cDestroy = (S.cDestroy || 0) + 1;
   const i = S.items.findIndex(x => x.uid === uid);
   if (i >= 0){
     const itm = S.items[i];
     S.items.splice(i, 1);
-    addLog(`「${itm.def.name}」已销毁`, "item");
+    if (!silent) addLog(`「${itm.def.name}」已销毁`, "item");
     if (grantDepth < 6){
       grantDepth++;
       fireHook("onConsume", { item: itm });
@@ -2917,6 +2959,7 @@ function grantItem(id, opts={}){
     const gd = randomItemDef(g, g);
     if (gd) id = gd.id;
   }
+  const slotNo = id;            // 玩家实际点的那个编号（图鉴上的编号）
   // 合同：把编号 1~28 的道具改写为对应角色能力
   id = contractRewrite(id);
   // 宝袋重排：编号 N 实际给的是图鉴上显示的那件
@@ -2930,7 +2973,7 @@ function grantItem(id, opts={}){
     if (alt && alt.id !== def.id) return grantItem(alt.id, { silent: opts.silent });
     return null;
   }
-  const it = { uid: S.uidSeq++, def, isNew:!opts.silent };
+  const it = { uid: S.uidSeq++, def, isNew:!opts.silent, num: slotNo };
   const hpMaxBefore = maxHp();
   S.items.push(it);
   // 血量上限增加时，同步回复等量血量
@@ -2945,8 +2988,10 @@ function grantItem(id, opts={}){
   if (isCain && !opts.fromBag && id > 0 && id !== 299){
     try {
       if (bagStoreItem(id)){
-        // 里该隐：道具直接被袋子吃掉，不留在身上
-        destroyItem(it.uid);
+        // 里该隐：道具直接被袋子吃掉，不留在身上；日志只报拆出来的数字
+        destroyItem(it.uid, true);
+        const str = String(id).padStart(3, "0").slice(-3);
+        log(`获得了 ${str.split("").join("、")} 数字`, "item");
       }
     } catch(e){}
   }
@@ -3372,6 +3417,21 @@ function openMenu(){
       </div>
     </div>
 
+    <div class="modal-row" style="cursor:pointer" onclick="toggleCainIntel()">
+      <div class="mi">🧠</div>
+      <div style="flex:1">
+        <div class="mn">情报里该隐模式：<span style="color:${cainIntel() ? "var(--gold)" : "#8d849b"}">${cainIntel() ? "开" : "关"}</span></div>
+        <div class="md">开启后，合成宝袋界面会直接列出当前数字能拼出的所有道具，点一下即可合成。</div>
+      </div>
+      <div style="align-self:center">
+        <div style="width:44px;height:22px;border-radius:999px;border:1px solid ${cainIntel() ? "#7a5c1e" : "#4a3f63"};
+             background:${cainIntel() ? "linear-gradient(180deg,#f2d98f,#c9a24a)" : "#241e33"};position:relative">
+          <div style="position:absolute;top:2px;left:${cainIntel() ? "23px" : "3px"};width:16px;height:16px;border-radius:50%;
+               background:${cainIntel() ? "#2a2113" : "#6b6180"};transition:.15s"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-row" style="cursor:pointer" onclick="toggleRepeatPrompt()">
       <div class="mi">🔁</div>
       <div style="flex:1">
@@ -3405,6 +3465,13 @@ function openMenu(){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
       <button class="btn ghost block" onclick="openRules()">玩 法 说 明</button>
+      <div class="modal-row" style="cursor:pointer" onclick="toggleCainIntel()">
+        <div class="mi">🧠</div>
+        <div style="flex:1">
+          <div class="mn">情报里该隐模式：<span style="color:${cainIntel() ? "var(--gold)" : "#8d849b"}">${cainIntel() ? "开" : "关"}</span></div>
+          <div class="md">开启后，合成宝袋界面会直接列出当前数字能拼出的所有道具。</div>
+        </div>
+      </div>
       <button class="btn ghost block" onclick="openAccount()">☁️ 账 号 / 云 存 档</button>
       <button class="btn ghost block" onclick="startTutorial()">新 手 教 程</button>
       <button class="btn ghost block" onclick="openChangelog()">更 新 日 志</button>
@@ -3886,9 +3953,14 @@ function itemIconHTML(it){
   const usable = !spent && !!(d.use || d.kind === "oneshot");
   const startup = !spent && !!(d.hooks && d.hooks.onBattleStart);
   const badge = d.grade >= 0 ? `<span class="g">${d.grade}</span>` : "";
+  const numBadge = (it.num != null && it.num !== d.id) ? `<span class="numtag">#${it.num}</span>` : "";
   return `<div class="itm s${d.grade} ${usable?'usable':''} ${spent?'spent':''} ${it.isNew?'new':''}"
-      data-tip="${it.uid}" data-use="${usable?it.uid:''}">${d.icon}${badge}${usable?'<b class="use">⚡</b>':''}${startup?'<b class="startup">⏳</b>':''}</div>`;
+      data-tip="${it.uid}" data-use="${usable?it.uid:''}">${d.icon}${badge}${numBadge}${usable?'<b class="use">⚡</b>':''}${startup?'<b class="startup">⏳</b>':''}</div>`;
 }
+
+
+/* 身上这件道具在「图鉴上」的编号（打乱/合同后仍以玩家看到的编号为准） */
+function itemNo(it){ return (it && it.num != null) ? it.num : (it && it.def ? it.def.id : 0); }
 
 function invHTML(){
   if (!S.items.length) return `<div class="empty-note">还没有任何道具</div>`;
@@ -4404,6 +4476,9 @@ const CHANGELOG = [
       "修复：精英战斗节点的图标被显示成火堆（现在保持剑图标，只保留头顶火苗）",
       "金币改为「只有上限、没有下限」：欠债/花钱可以直接扣成很负，不会被 100 的上限反过来卡在 -100",
       "云存档：上传/下载按钮现在会显示进度与结果；登录过期会自动续期",
+      "合成宝袋：打乱编号后，身上的道具与悬浮窗会显示「图鉴编号」，和合成结果对得上",
+      "里该隐吃到道具时，日志只显示拆出来的数字",
+      "设置新增「情报里该隐模式」：宝袋界面直接列出当前数字能合成的全部道具",
     ],
   },
   {
@@ -5566,7 +5641,7 @@ function bindTips(){
       const hint = isOneShot ? (S.oneshotClick === "single" ? "单击图标使用" : "双击图标使用") : (d.use ? "单击图标使用" : "");
       tip.innerHTML = `
         <div class="tn" style="color:${gradeColor(d.grade)}">${esc(itName(it))}</div>
-        <div class="tm">#${d.id}${d.grade >= 0 ? ` · ${d.grade} 级` : " · 角色能力"} · ${d.type}${kindTxt}</div>
+        <div class="tm">#${itemNo(it)}${d.grade >= 0 ? ` · ${d.grade} 级` : " · 角色能力"} · ${d.type}${kindTxt}</div>
         <div class="td">${colorizeChances(itDesc(it), it.def)}</div>
         ${hint ? `<div class="tm" style="margin-top:6px;color:#e8c46a">${hint}</div>` : ""}`;
       tip.classList.add("on");
