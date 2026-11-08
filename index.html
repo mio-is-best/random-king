@@ -1365,15 +1365,12 @@ D(58,"刀片",0,"功能类","拥有两个刀片时合成小刀。",{icon:"🔹",
       a.addItem(7);
       try { localStorage.setItem("rk4_knife", String((parseInt(localStorage.getItem("rk4_knife")||"0",10)||0)+1)); } catch(e){}
       log("两个刀片合成了小刀！","good"); } }}}),
-D(59,"磨刀石",0,"功能类","拥有的每把小刀额外 +3 伤害。",{icon:"🪨",
+D(59,"磨刀石",0,"功能类","拥有的每把小刀额外 +3 伤害；多块磨刀石各自叠加。",{icon:"🪨",
   dyn:(st)=>{
-    // 多块磨刀石不叠加：同一件计算里只结算一次
-    if (st._stoneDone) return;
-    const stones = S.items.filter(x => x.def.id === 59 && !x.spent).length;
-    if (!stones) return;
-    st._stoneDone = true;
-    // 按「小刀的数量」加伤，而不是按磨刀石的数量
+    // 每块磨刀石单独计算：磨刀石数量 × 小刀数量 × 3
+    // dyn 按道具实例执行：每块磨刀石各加「3 × 小刀数」
     const knives = S.items.filter(x => x.def.id === 7 && !x.spent).length;
+    if (!knives) return;
     st.addDmg += 3 * knives;
   }}),
 D(104,"以旧换新原型机",3,"功能类","主动：移除一件道具，并因此获得一件随机道具。",{icon:"🔄",
