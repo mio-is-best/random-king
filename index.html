@@ -2385,6 +2385,7 @@ function resolveRolledAttack(c){
     steps.push("幸运星·秒杀");
     addLog(`幸运星命中！计算器打出 ${roll}`, "good");
     dmg = Math.max(dmg, B.enemy.hp);
+    B._luckyThisHit = true;      // 标记：这一击是幸运星秒杀
   }
 
   B.lastFormula = { roll, steps, final: dmg, mult:m, addDmg:st.addDmg };
@@ -2430,7 +2431,10 @@ function applyPlayerDamage(dmg, raw, c){
   if (bar) bar.classList.add("hp-flash");
 
   if (e.hp <= 0){
-    const over = Math.max(0, dmg - before);
+    // 幸运星秒杀属于「正好打死」，处决类效果应当触发
+    const luckyKill = !!B._luckyThisHit;
+    B._luckyThisHit = false;
+    const over = luckyKill ? 0 : Math.max(0, dmg - before);
     B.overflow += over;
     winBattle(over);
     return;
@@ -2872,6 +2876,7 @@ function extendMapForShadow(){
 function newRun(charKey, seed){
   S.shuffleMap = null;
   S.mapStrokes = [];
+  S.runStart = Date.now();      // 本局开始时间（通关界面显示用时）
   S.drawTool = null;
   S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
   S.cLow1Win = 0; S.battleDmg = 0; S.maxHit = 0;
@@ -4645,6 +4650,8 @@ const CHANGELOG = [
       "修复：情报里该隐的推荐现在完全按道具图鉴显示，且合成结果与推荐一致",
       "修复：金币为 0 且没有信用卡时，花钱仍会被扣成负数（现在只有负债结算能扣成负数）",
       "修复：手动输入难度后主界面被清空（难度输入改用独立弹窗，避免触发死亡结算）",
+      "通关界面显示本局用时",
+      "修复：幸运星秒杀敌人时不触发「处决」（现在算作正好打死）",
       "修复：合成宝袋会把「控制台」也拆掉（现在控制台不参与编号打乱、也不会被吃）",
       "通过控制台拿到的道具也不会被宝袋拆解（判定改为按名字「控制台」识别，不看编号）",
     ],
@@ -5345,6 +5352,19 @@ function gameOver(){
   bindTips();
 }
 
+
+/* 本局用时（毫秒 -> mm:ss 或 h:mm:ss） */
+function runDurationText(){
+  if (!S.runStart) return "—";
+  const ms = Math.max(0, Date.now() - S.runStart);
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
 function victory(){
   try { fireHook("onVictory", {}); } catch(e){}
   if (S.tutorial){ endTutorial(); modalShell(`<h3>教 程 完 成</h3><div class="msub">你已经学会基本操作了，正式开局会难很多，祝你好运。</div><div class="modal-close"><button class="btn" onclick="closeModal();quitToTitle()">回 到 标 题</button></div>`); return; }
@@ -5361,7 +5381,8 @@ function victory(){
       <div style="font-size:26px;color:var(--gold);letter-spacing:.3em;margin-top:4px">${stars}</div>
       <p style="color:var(--dim);line-height:2;margin-top:10px">
         你走完了整条地牢线，站在了王国的尽头。<br>
-        击杀 ${S.totalKills} 名敌人 · 累计获得 ${S.totalGold} 金币 · 剩余血量 ${S.hp}
+        击杀 ${S.totalKills} 名敌人 · 累计获得 ${S.totalGold} 金币 · 剩余血量 ${S.hp}<br>
+        本局用时 <b style="color:var(--gold)">${runDurationText()}</b>
       </p>
       <div class="seed-box" style="max-width:360px;margin:14px auto 0">
         <div class="seed-label">本局种子（分享给别人可以玩同一局）</div>
