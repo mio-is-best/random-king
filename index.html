@@ -1444,9 +1444,15 @@ D(167,"旧药罐",1,"防御类","主动：花费 1 金币，回复 2 血量。",
 D(233,"银拳",1,"攻击类","主动：使用 1 金币造成 1 伤害。",{icon:"✊",
   use:(a)=>{ if(!a.inBattle()) return false; if(!canPay(1)) return false;
     spendGold(1); a.strike(1,"银拳"); }}),
-D(313,"钝刀片",1,"功能类","主动：对自己造成 1 点伤害（会触发受伤效果），再回复 1 点血量。",{icon:"🔪",
-  use:(a)=>{ S.hp = Math.max(1, S.hp - 1); fireHook("onHurt", { dmg: 1, raw: 1 });
-             fireHook("onAfterHurt", { dmg: 1, raw: 1 }); a.heal(1); }}),
+D(313,"钝刀片",1,"功能类","主动：扣除 1 点血量（会触发受伤效果），再回复 1 点血量。",{icon:"🔪",
+  use:(a)=>{
+    // 真的扣 1 血（可扣到 0），触发受伤类效果，再回 1 血
+    S.hp = Math.max(0, S.hp - 1);
+    fireHook("onHurt", { dmg: 1, raw: 1 });
+    fireHook("onAfterHurt", { dmg: 1, raw: 1 });
+    healPlayer(1);                  // 用 healPlayer 而不是 a.heal，确保会写日志
+    return true;
+  }}),
 D(376,"大爆弹",1,"攻击类","主动：扣除 2 血量，造成 6 伤害。",{icon:"🧨",
   use:(a)=>{ if(!a.inBattle()) return false; if(S.hp<=2) return false;
     spendHp(2); a.strike(6,"大爆弹"); }}),
@@ -4269,7 +4275,11 @@ function useItem(uid){
       ? Math.max(1, Math.floor((S.gold - goldFloor()) / per))
       : 999;
     if (max > 1){
-      promptNumber("使用几次", `这个道具每次花 ${it.def.costGold} 金币，最多 ${max} 次`, 1, max, (n) => {
+      const cost = it.def.costGold || 0;
+      const subText = cost > 0
+        ? `这个道具每次花 ${cost} 金币，最多 ${max} 次`
+        : `最多连续使用 ${max} 次`;
+      promptNumber("使用几次", subText, 1, max, (n) => {
         S._repeatRunning = true;
         try {
           for (let i = 0; i < n; i++){
@@ -4742,7 +4752,9 @@ const CHANGELOG = [
       "修复：神风在血量不足时仍会发动并造成伤害（现在必须留 1 血）",
       "修复：合成宝袋会把「控制台」也拆掉（现在控制台不参与编号打乱、也不会被吃）",
       "通过控制台拿到的道具也不会被宝袋拆解（判定改为按名字「控制台」识别，不看编号）",
-    ],
+          "修复：钝刀片不回复血量、也不写日志",
+      "修复：不花金币的主动道具，问次数时显示「花费 undefined 金币」",
+],
   },
   {
     date: "2026-11-07",
