@@ -3777,10 +3777,12 @@ function renderTitle(){
     <div class="tip">规则：你与敌人轮流攻击，伤害都是随机数。击败敌人溢出伤害换金币，宝箱与商店产出道具。<br>道具编号来自手稿的 #1 ~ #452 体系，本作实装 ${ITEMS.length} 件。${(() => { const r = getRecord(); return r.depth ? `<br>最深纪录：第 ${r.depth} 层 · 通关 ${r.wins || 0} 次` : ""; })()}</div>
   `;
   refreshCharUnlocks();
+  // 记住上次选的角色（切换高难/刷新界面后不丢）
+  const selKey = (S.selectedChar && charUnlocked(S.selectedChar)) ? S.selectedChar : CHARS[0].key;
   $("#char-grid").innerHTML = CHARS.map((c,i) => {
     const open = charUnlocked(c.key);
     return `
-    <button class="char-card ${i===0?'sel':''} ${open ? "" : "locked"}" data-key="${c.key}" ${open ? "" : "disabled"}>
+    <button class="char-card ${c.key === selKey ? 'sel' : ''} ${open ? "" : "locked"}" data-key="${c.key}" ${open ? "" : "disabled"}>
       <div class="char-emoji">${c.emoji}</div>
       <div class="cname">${c.name}${charStars(c.key) ? ` <span style="font-size:12px;letter-spacing:.1em;display:inline-block;max-width:150px;word-break:break-all">${"<span style=\"color:#ff7bb0\">★</span>".repeat(charShinyStars(c.key))}${"<span style=\"color:var(--gold)\">★</span>".repeat(Math.max(0, charStars(c.key) - charShinyStars(c.key)))}</span>` : ""}</div>
       <div class="chp">初始血量 ${Array.isArray(c.hp) ? c.hp[0] + "~" + c.hp[1] : c.hp}</div>
@@ -3793,11 +3795,12 @@ function renderTitle(){
     </button>
   `;
   }).join("");
-  let sel = CHARS[0].key;
+  let sel = selKey;
   $$("#char-grid .char-card").forEach(el => {
     el.onclick = () => {
       if (!charUnlocked(el.dataset.key)) return;
       sel = el.dataset.key;
+      S.selectedChar = sel;
       $$("#char-grid .char-card").forEach(x => x.classList.toggle("sel", x === el));
     };
   });
@@ -4442,6 +4445,7 @@ const CHANGELOG = [
       "修复：情报里该隐模式开关在菜单里出现了两次",
       "修复：里该隐拆解道具时，日志里还会多出一条「获得道具」",
       "局内菜单不再放「更新日志 / 新手教程 / 账号 / 玩法说明」，标题页菜单保留这些入口",
+      "修复：切换高难模式等操作会重置已选角色（现在会记住上次选择）",
     ],
   },
   {
