@@ -736,7 +736,7 @@ function takeQueuedItems(){
 }
 
 /* 难度（游戏内可调） */
-const DIFF_MIN = 0.40, DIFF_MAX = 1.40;
+const DIFF_MIN = 0.05, DIFF_MAX = 9.99;   // 只作为滑杆/输入的显示范围，不再限制实际取值
 
 function diffText(v){
   const n = Math.round(v * 100);
@@ -751,21 +751,31 @@ function diffText(v){
 function loadDiff(){
   try {
     const v = parseFloat(localStorage.getItem("rk4_diff"));
-    if (v >= DIFF_MIN && v <= DIFF_MAX) return v;
+    if (v > 0) return v;
   } catch(e){}
   return 0.80;
 }
 function saveDiff(){
   try { localStorage.setItem("rk4_diff", String(S.diff)); } catch(e){}
 }
+
+/* 手动输入难度（不设上下限） */
+function editDiff(){
+  promptNumber("设置难度", "输入倍率（例如 0.8 = 普通、1.5、3、10…）", 1, 999, (v) => {
+    S.diff = Math.max(0.01, v / 100);
+    saveDiff();
+    renderTitle();
+  }, Math.round(S.diff * 100));
+}
+
 function onDiffInput(v){
-  S.diff = clamp(+v / 100, DIFF_MIN, DIFF_MAX);
+  S.diff = Math.max(0.01, +v / 100 || 0.8);
   const lab = $("#diff-label");
   if (lab) lab.textContent = diffText(S.diff);
   saveDiff();
 }
 function setDiffPreset(v){
-  S.diff = clamp(v, DIFF_MIN, DIFF_MAX);
+  S.diff = Math.max(0.01, v);
   const sl = $("#diff-slider");
   if (sl) sl.value = Math.round(S.diff * 100);
   const lab = $("#diff-label");
@@ -1276,7 +1286,12 @@ D(27,"拉撒路绷带",1,"功能类","死亡后满血复活（每局一次），
 
 /* ================= #28 ~ #60 补充 ================= */
 D(40,"不义之财",1,"经济类","金币 +40；20% 概率失去全部金币。",{icon:"💰",
-  hooks:{onAcquire:(c,a)=>{ a.gold(40); if(chance(0.2)){ S.gold=goldFloor(); log("不义之财：钱全没了。","hurt"); } }}}),
+  hooks:{onAcquire:(c,a)=>{ a.gold(40); if(chance(0.2)){
+      const wasNeg = S.gold < 0;
+      S.gold = goldFloor();
+      if (wasNeg) log("路过的小偷帮你把债还完了！","good");
+      else log("不义之财：钱全没了。","hurt");
+    } }}}),
 D(46,"铜币",0,"经济类","一次性：金币 +5。",{icon:"🪙",kind:"oneshot",
   use:(a)=>{ a.gold(5); }}),
 D(49,"影分身",3,"攻击类","敌人血量 -50%（不受幸运影响）。12 关之后再加 12 关（敌人 [100,300] 血量），打完每一关都能拿一件随机道具。",{icon:"👥",pctLocked:true,
@@ -1648,7 +1663,11 @@ const ABILITY_ITEMS = [
   D(-21,"角色能力 · 里该隐",-1,"功能类","获得合成宝袋。",{icon:"🧰",draw:false,
     hooks:{onAcquire:(c,a)=>{ a.addItem(-31); }}}),
   D(-22,"角色能力 · 追梦旅人",-1,"功能类","每击败 3 个敌人，获得一个死亡证明。",{icon:"🌠",draw:false,
-    hooks:{onKill:(c,a)=>{ S.dreamKills=(S.dreamKills||0)+1; if(S.dreamKills%3===0) a.addItem(234); }}}),
+    dynDesc:()=>`每击败 3 个敌人，获得一个死亡证明。当前已击败 ${(S.dreamKills||0)%3}/3。`,
+    hooks:{onKill:(c,a)=>{
+      S.dreamKills = (S.dreamKills || 0) + 1;
+      if (S.dreamKills % 3 === 0) a.addItem(234);
+    }}}),
   D(-23,"角色能力 · 病人",-1,"功能类","血量上限每 +5 改为伤害 +1；每关开始获得神之血。",{icon:"🩺",draw:false,
     dyn:(st)=>{ st.addDmg += Math.floor(Math.max(0,(S.perm.hpMax||0))/5); },
     hooks:{onBattleStart:(c,a)=>{ a.addItem(114); }}}),
@@ -1717,10 +1736,9 @@ function bagDigits(){
 /* 得到道具时，把编号拆成 3 位数字存进袋子（如 1 -> 0,0,1） */
 function bagStoreItem(id){
   if (!S.items.some(i => i.def.id === -31 && !i.spent)) return false;
-  const n = Math.abs(Math.trunc(Number(id) || 0));
-  const str = String(n).padStart(3, "0").slice(-3);
+  // 拆解给的是 3 个完全随机的数字（数字可以重复）
   const bag = bagDigits();
-  for (const ch of str) bag.push(Number(ch));
+  for (let i = 0; i < 3; i++) bag.push(Math.floor(rnd() * 10));
   // 袋子最多存 30 个数字，防止无限堆积
   while (bag.length > 30) bag.shift();
   return true;
@@ -1749,7 +1767,7 @@ function bagCraftables(){
         const num = bag[a]*100 + bag[b]*10 + bag[c];
         if (seen[num]) continue;
         const def = shownDef(num);
-        if (!def || (def.grade || 0) < 0) continue;
+        if (!def || (def.grade || 0) < 0 || def.name === "控制台") continue;
         seen[num] = 1;
         out.push({ num, def });
         if (out.length >= 40) return out;
@@ -1827,7 +1845,7 @@ function openCraftBag(){
       btn.onclick = () => {
         const num = Number(btn.dataset.craft);
         const target = shownDef(num);
-        if (!target || (target.grade || 0) < 0) return;
+        if (!target || (target.grade || 0) < 0 || target.name === "控制台") return;
         const need = String(num).padStart(3, "0").split("").map(Number);
         const bagNow = bagDigits();
         const idxs = [];
@@ -1850,7 +1868,7 @@ function openCraftBag(){
       if (picked.length !== 3) return;
       const num = Number(picked.join(""));
       const target = shownDef(num);
-      if (!target || (target.grade || 0) < 0) return;
+      if (!target || (target.grade || 0) < 0 || target.name === "控制台") return;
       if (!target){ log(`袋子：没有编号 ${num} 的道具。`,"sys"); return; }
       // 从袋子里删掉对应的三个数字（按值删，各删一个）
       for (const v of picked){
@@ -3781,11 +3799,11 @@ function renderTitle(){
     <div class="char-grid" id="char-grid"></div>
 
     <div class="diff-box">
-      <div class="diff-head"><span class="t">难 度</span><span id="diff-label">${diffText(S.diff)}</span></div>
+      <div class="diff-head"><span class="t">难 度</span><span id="diff-label" style="cursor:pointer" title="点击直接输入" onclick="editDiff()">${diffText(S.diff)} ✎</span></div>
       <div class="diff-slider-row">
         <span class="e">简单</span>
         <input id="diff-slider" type="range" min="${Math.round(DIFF_MIN*100)}" max="${Math.round(DIFF_MAX*100)}"
-               step="1" value="${Math.round(S.diff*100)}" oninput="onDiffInput(this.value)">
+               step="1" value="${Math.min(Math.round(DIFF_MAX*100), Math.max(Math.round(DIFF_MIN*100), Math.round(S.diff*100)))}" oninput="onDiffInput(this.value)">
         <span class="e">地狱</span>
       </div>
       <div class="diff-presets">
@@ -4978,6 +4996,7 @@ function captureScroll(){
   return {
     winY: (typeof window !== "undefined" && window.scrollY) || 0,
     map: (() => { const el = $(".map-panel"); return el ? el.scrollTop : 0; })(),
+    mapX: (() => { const el = $(".map-panel"); return el ? el.scrollLeft : 0; })(),
     log: (() => { const el = $("#logbox"); return el ? el.scrollTop : 0; })(),
     logStick: (() => { const el = $("#logbox"); return el ? logAtBottom(el) : true; })(),
     scr: (() => { const el = $(".screen"); return el ? el.scrollTop : 0; })(),
@@ -4986,7 +5005,11 @@ function captureScroll(){
 function restoreScroll(k){
   if (!k) return;
   const doIt = () => {
-    const mp = $(".map-panel"); if (mp && k.map) mp.scrollTop = k.map;
+    const mp = $(".map-panel");
+    if (mp){
+      if (k.map) mp.scrollTop = k.map;
+      if (k.mapX) mp.scrollLeft = k.mapX;
+    }
     const lb = $("#logbox");
     if (lb){
       attachLogScroll(lb);
@@ -5494,12 +5517,20 @@ function pickItem(gradeMin, gradeMax, cb, title, opts){
   // 编号 → 实际道具：合同 / 合成宝袋改写后，挑选界面也要显示、也要能搜到
   // 先按「格子原本的等级」筛，再套上显示层的改写
   // （合同会把 1~28 号显示成 -1 级的角色能力，不能因此被等级筛选踢掉）
+  const inRange = (d0) => {
+    const disp = shownDef(d0.id) || d0;
+    const gDisp = disp.grade || 0;
+    const gOrig = d0.grade || 0;
+    // 打乱后按「显示出来的等级」算；合同把 1~28 变成 -1 级能力时退回原等级
+    if (gDisp >= gradeMin && gDisp <= gradeMax) return true;
+    if (gDisp < 0 && gOrig >= gradeMin && gOrig <= gradeMax) return true;
+    return false;
+  };
   const all = (opts.all
       ? ITEMS.filter(d => d.id !== 0 && d.id !== 299)          // 控制台自己不给
       : opts.negative
         ? ITEMS.filter(d => d.id <= -30)
-        : ITEMS.filter(d => d.id > 0 && d.draw !== false &&
-            (d.grade || 0) >= gradeMin && (d.grade || 0) <= gradeMax))
+        : ITEMS.filter(d => d.id > 0 && d.draw !== false && inRange(d)))
     .map(d0 => Object.assign({}, shownDef(d0.id) || d0, { slot: d0.id }));
   const ui = { q: "", sort: "grade" };
 
