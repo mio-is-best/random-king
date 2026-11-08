@@ -759,13 +759,27 @@ function saveDiff(){
   try { localStorage.setItem("rk4_diff", String(S.diff)); } catch(e){}
 }
 
-/* 手动输入难度（不设上下限） */
+/* 手动输入难度（不设上下限）
+   注意：这里不能用 promptNumber —— 它回调后会跑 resolveDeath()，
+   在标题页 S.hp 为 0，会被误判成死亡直接把界面清掉 */
 function editDiff(){
-  promptNumber("设置难度", "输入倍率（例如 0.8 = 普通、1.5、3、10…）", 1, 999, (v) => {
+  const div = modalShell(`<h3>设置难度</h3>
+    <div class="msub">输入倍率（0.8 = 普通，1.5、3、10…都可以）</div>
+    <input id="diff-input" class="num-input num" type="number" min="1" max="9999" step="1" value="${Math.round(S.diff * 100)}">
+    <div class="modal-close"><button class="btn sm" id="diff-ok">确 定</button>
+      <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
+  const inp = div.querySelector("#diff-input");
+  const ok = div.querySelector("#diff-ok");
+  const apply = () => {
+    let v = parseInt(inp.value, 10);
+    if (isNaN(v) || v <= 0) v = Math.round(S.diff * 100);
     S.diff = Math.max(0.01, v / 100);
     saveDiff();
+    closeModal();
     renderTitle();
-  }, Math.round(S.diff * 100));
+  };
+  if (ok) ok.onclick = apply;
+  if (inp) inp.onkeydown = (e) => { if (e.key === "Enter") apply(); };
 }
 
 function onDiffInput(v){
@@ -4630,6 +4644,7 @@ const CHANGELOG = [
       "修复：里该隐拆掉的「获得时生效」道具会先生效一次（现在被拆掉就不再生效）",
       "修复：情报里该隐的推荐现在完全按道具图鉴显示，且合成结果与推荐一致",
       "修复：金币为 0 且没有信用卡时，花钱仍会被扣成负数（现在只有负债结算能扣成负数）",
+      "修复：手动输入难度后主界面被清空（难度输入改用独立弹窗，避免触发死亡结算）",
       "修复：合成宝袋会把「控制台」也拆掉（现在控制台不参与编号打乱、也不会被吃）",
       "通过控制台拿到的道具也不会被宝袋拆解（判定改为按名字「控制台」识别，不看编号）",
     ],
