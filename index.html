@@ -81,6 +81,13 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.draw-tools{display:flex;gap:10px;justify-content:center;margin-top:12px}
+.draw-btn{width:42px;height:42px;border-radius:50%;border:1px solid #3a3150;
+  background:linear-gradient(180deg,#221c33,#171223);color:#e8c46a;font-size:18px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+.draw-btn.on{border-color:var(--gold);box-shadow:0 0 10px rgba(232,196,106,.45);
+  background:linear-gradient(180deg,#2f2748,#221c33)}
+#map-draw{position:absolute;left:0;top:0;z-index:4;pointer-events:none;touch-action:none}
 .itm .numtag{position:absolute;left:-2px;top:-2px;background:#2a2342;border:1px solid #4a3f63;
   color:#b9b0c8;font-size:8px;line-height:1;padding:1px 3px;border-radius:6px;pointer-events:none}
 #title-menu-btn{position:fixed;top:14px;right:14px;z-index:40;width:42px;height:42px;border-radius:12px;
@@ -2805,6 +2812,8 @@ function extendMapForShadow(){
 
 function newRun(charKey, seed){
   S.shuffleMap = null;
+  S.mapStrokes = [];
+  S.drawTool = null;
   S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
   S.cLow1Win = 0; S.battleDmg = 0; S.maxHit = 0;
   const ch = CHARS.find(c => c.key === charKey) || CHARS[0];
@@ -3842,6 +3851,112 @@ function renderTitle(){
 }
 
 /* ---------- 地图 ---------- */
+
+/* ============================================================
+   地图涂鸦：轨迹存在 S.mapStrokes 里，重绘/滚动都跟着地图走
+   ============================================================ */
+function mapStrokes(){
+  if (!Array.isArray(S.mapStrokes)) S.mapStrokes = [];
+  return S.mapStrokes;
+}
+
+function setDrawTool(tool){
+  S.drawTool = (S.drawTool === tool) ? null : tool;
+  renderMap();
+}
+
+function clearMapDraw(){
+  S.mapStrokes = [];
+  S.drawTool = null;
+  renderMap();
+}
+
+function initMapDraw(){
+  const wrap = $("#map-panel .map-wrap");
+  const cv = $("#map-draw");
+  if (!wrap || !cv) return;
+
+  // 画布铺满整块地图内容（含滚动出去的部分）
+  const w = Math.max(wrap.scrollWidth, wrap.clientWidth);
+  const h = Math.max(wrap.scrollHeight, wrap.clientHeight);
+  cv.width = w;
+  cv.height = h;
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+
+  const ctx = cv.getContext("2d");
+  const paint = () => {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (const st of mapStrokes()){
+      if (st.pts.length < 2) continue;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = st.color || "#e8c46a";
+      ctx.lineWidth = st.size || 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(st.pts[0].x, st.pts[0].y);
+      for (let i = 1; i < st.pts.length; i++) ctx.lineTo(st.pts[i].x, st.pts[i].y);
+      ctx.stroke();
+    }
+  };
+  paint();
+
+  // 按钮
+  const pen = $("#btn-pen"), era = $("#btn-eraser"), clr = $("#btn-clear");
+  if (pen) pen.onclick = () => setDrawTool("pen");
+  if (era) era.onclick = () => setDrawTool("eraser");
+  if (clr) clr.onclick = () => clearMapDraw();
+
+  const tool = S.drawTool;
+  if (!tool){ cv.style.pointerEvents = "none"; return; }
+  cv.style.pointerEvents = "auto";
+  cv.style.cursor = tool === "pen" ? "crosshair" : "cell";
+
+  let drawing = false, cur = null;
+
+  const pos = (ev) => {
+    const r = cv.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  };
+
+  // 橡皮：删掉附近轨迹点（数据层面，重绘后依然有效）
+  const eraseAt = (p) => {
+    const R = 14;
+    const list = mapStrokes();
+    for (let i = list.length - 1; i >= 0; i--){
+      const st = list[i];
+      st.pts = st.pts.filter(q => Math.hypot(q.x - p.x, q.y - p.y) > R);
+      if (st.pts.length < 2) list.splice(i, 1);
+    }
+    paint();
+  };
+
+  cv.onpointerdown = (ev) => {
+    ev.preventDefault();
+    cv.setPointerCapture && cv.setPointerCapture(ev.pointerId);
+    const p = pos(ev);
+    if (tool === "eraser"){ drawing = true; eraseAt(p); return; }
+    drawing = true;
+    cur = { color: "#e8c46a", size: 3, pts: [p] };
+    mapStrokes().push(cur);
+    paint();
+  };
+  cv.onpointermove = (ev) => {
+    if (!drawing) return;
+    ev.preventDefault();
+    const p = pos(ev);
+    if (tool === "eraser"){ eraseAt(p); return; }
+    if (!cur) return;
+    cur.pts.push(p);
+    paint();
+  };
+  const end = () => { drawing = false; cur = null; };
+  cv.onpointerup = end;
+  cv.onpointercancel = end;
+  cv.onpointerleave = end;
+}
+
 function renderMap(){
   const _scroll = captureScroll();
   const NODE_META = {
@@ -3886,8 +4001,13 @@ function renderMap(){
         ${btn}
         <button class="btn ghost sm" onclick="openCodex()">道 具 图 鉴</button>
       </div>
-      <div class="map-panel" id="map-panel"><div class="map-wrap"><svg class="map-lines" id="map-lines"></svg>${rows}</div></div>
-      <div style="margin-top:14px">${logBoxHTML(96)}</div>
+      <div class="map-panel" id="map-panel"><div class="map-wrap"><svg class="map-lines" id="map-lines"></svg>${rows}<canvas id="map-draw"></canvas></div></div>
+      <div class="draw-tools">
+        <button class="draw-btn ${S.drawTool === "pen" ? "on" : ""}" id="btn-pen" title="画笔">✏️</button>
+        <button class="draw-btn ${S.drawTool === "eraser" ? "on" : ""}" id="btn-eraser" title="橡皮擦">🧽</button>
+        <button class="draw-btn" id="btn-clear" title="清空">🗑️</button>
+      </div>
+      <div style="margin-top:10px">${logBoxHTML(96)}</div>
       <div class="panel" style="padding:14px;margin-top:12px;text-align:left">
         <div class="inv-head"><span>道 具（${S.items.length} 件）</span><span>金币 ${S.gold}</span></div>
         ${invHTML()}
@@ -3905,6 +4025,7 @@ function renderMap(){
   `;
   bindTips();
   drawMapLines();
+  initMapDraw();
   restoreScroll(_scroll);
   const panel = $("#map-panel");
   const cur = $("#map-panel .node.now");
@@ -4446,6 +4567,7 @@ const CHANGELOG = [
       "修复：里该隐拆解道具时，日志里还会多出一条「获得道具」",
       "局内菜单不再放「更新日志 / 新手教程 / 账号 / 玩法说明」，标题页菜单保留这些入口",
       "修复：切换高难模式等操作会重置已选角色（现在会记住上次选择）",
+      "地图新增涂鸦：画笔 / 橡皮 / 清空三个圆按钮，轨迹会随地图一起滚动",
     ],
   },
   {
