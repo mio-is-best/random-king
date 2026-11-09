@@ -2514,7 +2514,7 @@ function api(item, st){
 }
 
 function randomItemDef(lo, hi){
-  const pool = ITEMS.filter(d => d.id > 0 && d.draw !== false && (!lo && !hi || true) && d.grade >= (lo||0) && d.grade <= (hi??5));
+  const pool = ITEMS.filter(d => d.id > 0 && !d.hidden && d.draw !== false && (!lo && !hi || true) && d.grade >= (lo||0) && d.grade <= (hi??5));
   return pool[ri(0, pool.length-1)] || null;
 }
 
@@ -3323,6 +3323,12 @@ function newRun(charKey, seed){
   S.shuffleMap = null;
   S.mapStrokes = [];
   S.cards = [];              // 塔罗卡牌
+  // 清掉上一局 AI 生成的道具（只在那一局存在）
+  if (S.glitchIds && S.glitchIds.length){
+    for (const gid of S.glitchIds){ ITEM_BY_ID.delete(gid); }
+    for (let i = ITEMS.length - 1; i >= 0; i--){ if (ITEMS[i].hidden) ITEMS.splice(i, 1); }
+        }
+  S.glitchIds = [];
   S.runStart = Date.now();      // 本局开始时间（通关界面显示用时）
   S.drawTool = null;
   S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
@@ -3442,7 +3448,7 @@ function shownDef(id){
    ============================================================ */
 function shuffleItemIds(){
   // 控制台(299)不参与打乱：它是工具，不该被换成别的道具
-  const ids = ITEMS.filter(i => i.id > 0 && i.id !== 299 && (i.grade || 0) >= 0).map(i => i.id);
+  const ids = ITEMS.filter(i => i.id > 0 && !i.hidden && i.id !== 299 && (i.grade || 0) >= 0).map(i => i.id);
   const pool = ids.slice();
   // Fisher-Yates
   for (let i = pool.length - 1; i > 0; i--){
@@ -4477,7 +4483,7 @@ function renderTitle(){
            </button>`
         : `<span class="tag" style="align-self:center">集满 3 星解锁高难模式（当前 ${maxCharStars()}/3）</span>`}
     </div>
-    <div class="tip">规则：你与敌人轮流攻击，伤害都是随机数。击败敌人溢出伤害换金币，宝箱与商店产出道具。<br>道具编号来自手稿的 #1 ~ #452 体系，本作实装 ${ITEMS.length} 件。${(() => { const r = getRecord(); return r.depth ? `<br>最深纪录：第 ${r.depth} 层 · 通关 ${r.wins || 0} 次` : ""; })()}</div>
+    <div class="tip">规则：你与敌人轮流攻击，伤害都是随机数。击败敌人溢出伤害换金币，宝箱与商店产出道具。<br>道具编号来自手稿的 #1 ~ #452 体系，本作实装 ${ITEMS.filter(d => !d.hidden).length} 件。${(() => { const r = getRecord(); return r.depth ? `<br>最深纪录：第 ${r.depth} 层 · 通关 ${r.wins || 0} 次` : ""; })()}</div>
   `;
   refreshCharUnlocks();
   // 记住上次选的角色（切换高难/刷新界面后不丢）
@@ -4821,12 +4827,32 @@ function buildAiHooks(specs){
 }
 
 /* 把脚本挂到道具实例 / 卡牌实例上（可叠加） */
-function attachAiScript(target, spec, desc){
-  if (!target) return;
-  target.aiScripts = target.aiScripts || [];
-  target.aiScripts.push(spec);
+/* 强化用的清洗：只保留一个触发器、100% 触发、数值一律为正（好效果） */
+function sanitizeBoostSpec(spec){
+  const tr = (spec && spec.triggers && spec.triggers[0]) || null;
+  if (!tr) return null;
+  const ops = [];
+  for (const o of (tr.ops || [])){
+    if (!o || !AI_OPS[o.op]) continue;
+    if (o.op === "hurt") continue;                       // 自伤属于坏效果，强化不给
+    const v = Math.abs(Number(o.v) || 0);
+    if (!v && o.op !== "card" && o.op !== "item") continue;
+    ops.push({ op: o.op, v: v || 1, k: o.k });
+    if (ops.length >= 3) break;
+  }
+  if (!ops.length) return null;
+  return { desc: spec.desc, triggers: [{ on: tr.on, p: 1, ops }] };
+}
+
+/* 挂到道具/卡牌上；replace=true 时只保留这一次强化（火堆强化用） */
+function attachAiScript(target, spec, desc, replace){
+  if (!target || !spec) return;
+  const clean = replace ? sanitizeBoostSpec(spec) : spec;
+  if (!clean) return;
+  target.aiScripts = replace ? [clean] : (target.aiScripts || []).concat([clean]);
   target.aiHooks = buildAiHooks(target.aiScripts);
   if (desc) target.aiDesc = String(desc).slice(0, 120);
+  if (typeof afterStateChange === "function") { try { afterStateChange(); } catch(e){} }
 }
 
 /* 没有 AI 时的「创意向」兜底效果（也不是纯属性） */
@@ -4892,8 +4918,10 @@ function openAiBoostPicker(done){
     modalShell(`<h3>✨ AI 正在强化「${esc(name)}」…</h3>
       <div class="msub">稍等片刻。</div>`);
 
-    const sys = "你是卡牌游戏的设计助手。给一个已有的道具/塔罗牌追加一段"
-      + "有创意的额外机制（按条件触发的小效果），不要单纯堆属性。" + aiScriptPrompt();
+    const sys = "你是卡牌游戏的设计助手。给一个已有的道具/塔罗牌追加**一个**正面机制"
+      + "（100% 触发、只带来好处，例如击杀时得金币、战斗开始回血、命中后追击）。"
+      + "只输出 JSON：{\"desc\":\"一句话描述\",\"triggers\":[{\"on\":\"onKill\",\"ops\":[{\"op\":\"gold\",\"v\":2}]}]}。"
+      + "on 只能从 " + AI_TRIGGERS.join("、") + "；op 只能从 " + AI_OP_DESC + "；只给 1 个触发器、最多 2 个操作、数值 1~5，必须为正。";
     const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${curBoost}\n`
       + `请设计一个【和现有效果不同、有记忆点】的额外机制（比如击杀时、受伤时、过关时触发的组合效果）。`;
 
@@ -4904,12 +4932,12 @@ function openAiBoostPicker(done){
       if (!spec){
         if (err) log(`✨ AI 调用失败：${err}（已用本地兜底效果）`, "sys");
         const fb = randomAiScript();
-        attachAiScript(target, fb, fb.desc);
+        attachAiScript(target, fb, fb.desc, true);
         log(`✨ AI 强化「${name}」（本地兜底）：${fb.desc}`, "good");
         if (done) done();
         return;
       }
-      attachAiScript(target, spec, j.desc);
+      attachAiScript(target, spec, j.desc, true);
       log(`✨ AI 强化「${name}」：${j.desc}`, "good");
       if (done) done();
     });
@@ -4996,9 +5024,11 @@ function makeGlitchItem(a){
       icon: String(icon || randomIcon()).slice(0, 8),
       mods: mods || {},
       hooks: spec ? buildAiHooks([spec]) : {},
+      hidden: true,            // 不进图鉴、不参与掉落/打乱，只在本局存在
     };
     ITEMS.push(def);
     ITEM_BY_ID.set(id, def);
+    (S.glitchIds = S.glitchIds || []).push(id);
     a.addItem(id);
     log(`🐛 错误技：获得了「${def.name}」——${def.desc}`, "item");
     afterStateChange();          // 立刻刷新道具栏与属性
@@ -5063,7 +5093,7 @@ function enterCampfire(){
   // 没有帐篷：选一次就结束
   if (!hasTent){
     chooseOne("火堆", "在火堆旁你要做什么？", build(used), (o) => {
-      const isAsync = doOption(o.key);
+      const isAsync = doOption(o.key, () => { advanceNode(); renderAll(); });
       if (!isAsync){ advanceNode(); renderAll(); }
     });
     return;
@@ -5645,6 +5675,9 @@ const CHANGELOG = [
       "AI 设置新增「测试连接」：能看到 HTTP 状态码 / 网络错误，方便排查 Key 或跨域问题",
       "默认模型名更正为 deepseek-flash（旧版本填错的会自动纠正）",
       "AI 调用失败时会在日志里说明原因，并自动改用本地效果",
+      "火堆强化只给一个正面效果（100% 触发、无负数值），多次强化会覆盖",
+      "修复：无帐篷时火堆强化后不会结束节点",
+      "错误技生成的道具只在本局存在、不进图鉴，强化后描述会显示【AI 强化】内容",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
@@ -6605,10 +6638,10 @@ function pickItem(gradeMin, gradeMax, cb, title, opts){
     return false;
   };
   const all = (opts.all
-      ? ITEMS.filter(d => d.id !== 0 && d.id !== 299)          // 控制台自己不给
+      ? ITEMS.filter(d => d.id !== 0 && d.id !== 299 && !d.hidden)   // 控制台自己不给
       : opts.negative
-        ? ITEMS.filter(d => d.id <= -30)
-        : ITEMS.filter(d => d.id > 0 && d.draw !== false && inRange(d)))
+        ? ITEMS.filter(d => d.id <= -30 && !d.hidden)
+        : ITEMS.filter(d => d.id > 0 && d.draw !== false && !d.hidden && inRange(d)))
     .map(d0 => Object.assign({}, shownDef(d0.id) || d0, { slot: d0.id }));
   const ui = { q: "", sort: "grade" };
 
@@ -6966,6 +6999,7 @@ function itDesc(it){
     const parts = Object.keys(g).filter(k => g[k]).map(k => `${names[k] || k} +${g[k]}`);
     if (parts.length) base += `（已成长：${parts.join("、")}）`;
   }
+  if (it.aiDesc) base += `\n【AI 强化】${it.aiDesc}`;
   return base;
 }
 function moveTip(ev){
