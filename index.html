@@ -81,6 +81,9 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.ai-style-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin-top:12px;padding:8px 10px;border:1px solid #2f2745;border-radius:10px;background:#171223}
+.ai-style-label{font-size:12px;color:#b9b0c8;letter-spacing:.08em}
 .ai-status{margin-top:10px;font-size:12px;line-height:1.6;min-height:16px;word-break:break-all}
 .ai-guide{margin-top:10px;padding:10px 12px;border:1px solid #2f2745;border-radius:10px;background:#171223}
 .ai-guide-title{font-size:12px;letter-spacing:.12em;color:var(--gold);margin-bottom:6px}
@@ -2154,6 +2157,22 @@ function aiCfg(){
 }
 function aiReady(){ return !!aiCfg().key; }
 
+/* 描述风格：exact = 具体写清效果（默认），flavor = 文艺 */
+function aiDescStyle(){
+  try { return localStorage.getItem("rk4_ai_desc_style") === "flavor" ? "flavor" : "exact"; }
+  catch(e){ return "exact"; }
+}
+function setAiDescStyle(v){
+  try { localStorage.setItem("rk4_ai_desc_style", v === "flavor" ? "flavor" : "exact"); } catch(e){}
+}
+/* 拼给 AI 的描述要求 */
+function aiDescRule(){
+  return aiDescStyle() === "flavor"
+    ? "desc 请写得有文采、有意境（一句话），但不要写具体数值。"
+    : "desc 必须【具体写清效果】：包含触发时机、概率与数值，例如「击杀敌人时 30% 概率获得 2 金币并回复 1 点血量」，"
+      + "不允许用比喻、诗意或含糊的写法。";
+}
+
 function openAISettings(){
   const c = aiCfg();
   const div = modalShell(`<h3>AI 设置</h3>
@@ -2175,10 +2194,27 @@ function openAISettings(){
     <input id="ai-key" class="codex-search" style="width:100%;margin-top:8px" placeholder="sk-..." value="${esc(c.key)}">
     <input id="ai-base" class="codex-search" style="width:100%;margin-top:8px" placeholder="接口地址" value="${esc(c.base)}">
     <input id="ai-model" class="codex-search" style="width:100%;margin-top:8px" placeholder="模型名" value="${esc(c.model)}">
+    <div class="ai-style-row">
+      <span class="ai-style-label">生成的描述风格</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm ${aiDescStyle() === "exact" ? "" : "ghost"}" id="ai-style-exact">具体写效果</button>
+        <button class="btn sm ${aiDescStyle() === "flavor" ? "" : "ghost"}" id="ai-style-flavor">文艺一点</button>
+      </div>
+    </div>
+    <div class="ai-guide-tip" style="margin-top:4px">
+      具体：会写清「什么时候、多少概率、加多少」，例如「击杀敌人时 30% 概率获得 2 金币」。<br>
+      文艺：只写意境，不写数值。
+    </div>
     <div id="ai-status" class="ai-status"></div>
     <div class="modal-close"><button class="btn sm" id="ai-save">保 存</button>
       <button class="btn ghost sm" id="ai-test">测 试 连 接</button>
       <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
+  const reRender = () => { closeModal(); openAISettings(); };
+  const bExact = div.querySelector("#ai-style-exact");
+  const bFlavor = div.querySelector("#ai-style-flavor");
+  if (bExact) bExact.onclick = () => { setAiDescStyle("exact"); reRender(); };
+  if (bFlavor) bFlavor.onclick = () => { setAiDescStyle("flavor"); reRender(); };
+
   const status = div.querySelector("#ai-status");
   const say = (t, ok) => {
     if (!status) return;
@@ -5030,7 +5066,7 @@ function openAiBoostPicker(done){
     const usedDesc = ((target.aiDescs || []).join("；") || "（无）");
     const sys = "你是卡牌游戏的设计助手。请自由设计一段新的机制代码，追加到这个道具/塔罗牌上。"
       + (isActive ? "它属于主动道具，机制请在它被使用时触发（onUse）。" : "")
-      + aiCodePrompt();
+      + aiCodePrompt() + aiDescRule();
     const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${usedDesc}\n`
       + `请发挥想象，设计一个【和现有效果、已有强化都不同、有记忆点】的机制，自己决定触发时机。`
       + `随机种子：${Math.floor(Math.random() * 100000)}（保证这次和以往不一样）。`;
@@ -5156,7 +5192,7 @@ function makeGlitchItem(a){
   modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
   const sys = "你是卡牌游戏的设计助手。生成一个机制完全随机、好坏参半的道具，"
     + "要有创意，好坏都行（可以自伤、可以倒贴钱、也可以很强），不要只是加属性。"
-    + aiCodePrompt() + "名字不要给（名字由程序随机生成）。";
+    + aiCodePrompt() + aiDescRule() + "名字不要给（名字由程序随机生成）。";
   aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
@@ -5802,6 +5838,7 @@ const CHANGELOG = [
       "新道具「灼热升级」#459：之后的强化改为叠加，多个效果与描述同时存在",
       "AI 强化不再总是「受伤回血」：每次随机指定不同的触发时机与效果类型",
       "AI 不再生成「免疫」相关的效果",
+      "AI 设置新增「描述风格」开关：具体写效果（默认，会写明时机/概率/数值）或文艺一点",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
