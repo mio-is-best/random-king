@@ -1788,21 +1788,19 @@ const EXTRA_ITEMS = [
   D(-30,"合同",2,"功能类","本局内，道具库里编号 1~28 的道具会变成对应编号的角色的能力（等级跟随原道具）。",{icon:"📜",draw:false}),
 
   D(456,"帐篷",2,"功能类","火堆可以选择任意个选项：每选完一个选项不会离开，可以继续选（同一个选项只能选一次）。",{icon:"⛺"}),
-D(457,"火神开道",3,"功能类","主动：只能在地图界面使用，花费 3 金币，把下一个非战斗节点变成火堆。",{icon:"🔥",
+D(457,"火神开道",3,"功能类","主动：只能在地图界面使用，花费 3 金币，把当前位置下方连接着的非战斗节点变成火堆。",{icon:"🔥",
   use:(a)=>{
     if (S.battle && !S.battle.over){ log("火神开道：只能在地图界面使用。","sys"); return false; }
+    const here = (S.map || [])[S.nodeIdx];
+    if (!here){ log("火神开道：现在没有位置可以改造。","sys"); return false; }
+    const targets = (here.next || []).map(id => S.map[id])
+      .filter(n => n && n.type !== "enemy" && !n.boss);
+    if (!targets.length){ log("火神开道：下方没有可以改造的非战斗节点。","sys"); return false; }
     if (!canPay(3)){ log("火神开道：金币不够。","sys"); return false; }
-    const cand = (S.map || []).filter(n => n.row > S.depth && n.type !== "enemy" && !n.boss &&
-      (S.reach || []).length >= 0);
-    // 只改还能走到的后续节点
-    const pool = (S.map || []).filter(n => n.type !== "enemy" && !n.boss &&
-      (S.mapDone || []).indexOf(n.id) < 0 && n.id !== S.nodeIdx);
-    if (!pool.length){ log("火神开道：没有可以改造的节点了。","sys"); return false; }
-    pool.sort((x, y) => x.row - y.row);
-    const target = pool[0];
     spendGold(3);
+    const target = targets[0];
     target.type = "campfire";
-    log(`🔥 火神开道：第 ${target.row + 1} 行的一个节点变成了火堆。`, "good");
+    log(`🔥 火神开道：下方的节点变成了火堆。`, "good");
     return true;
   }}),
 D(458,"错误技",0,"功能类","一次性：获得一个完全随机的道具（AI 生成，带 3 个随机效果；没填 API Key 时本地随机生成）。",{icon:"🐛",kind:"oneshot",
@@ -4796,36 +4794,84 @@ function openAiBoostPicker(done){
 
 /* 错误技：让 AI 现场造一个随机道具（没有 Key 就在本地随机造） */
 function makeGlitchItem(a){
+  // 真随机字符：汉字、繁体、日文、韩文、英文、俄文、希腊、阿拉伯、符号、数学、表情…
+  const RANDOM_POOLS = [
+    [0x4E00, 0x9FFF], [0x3400, 0x4DBF], [0x3040, 0x30FF], [0xAC00, 0xD7AF],
+    [0x0041, 0x005A], [0x0061, 0x007A], [0x0410, 0x044F], [0x0391, 0x03C9],
+    [0x0600, 0x06FF], [0x0E00, 0x0E7F], [0x0590, 0x05FF],
+    [0x2000, 0x206F], [0x2190, 0x21FF], [0x2200, 0x22FF], [0x2500, 0x257F],
+    [0x25A0, 0x25FF], [0x2600, 0x26FF], [0x2700, 0x27BF],
+    [0x1F300, 0x1F5FF], [0x1F600, 0x1F64F], [0x1F900, 0x1F9FF],
+  ];
+  const randomChar = () => {
+    const p = RANDOM_POOLS[ri(0, RANDOM_POOLS.length - 1)];
+    const cp = ri(p[0], p[1]);
+    try { return String.fromCodePoint(cp); } catch(e){ return "?"; }
+  };
+  // 名字长度随机且无固定上限（1~14 个字符，混排各种字符）
   const randomName = () => {
-    const pool = "错乱畸变故障乱码幽灵扭曲残响坍缩";
+    const len = ri(1, 14);
     let n = "";
-    const len = 2 + ri(0, 2);
-    for (let i = 0; i < len; i++) n += pool[ri(0, pool.length - 1)];
+    for (let i = 0; i < len; i++) n += randomChar();
     return n;
   };
+
+  /* 效果池：好坏各有，坏效果占比更高 */
+  const GOOD = [
+    ["addDmg", 1, 3], ["reduceDmg", 1, 2], ["boostDmg", 1, 3], ["hpMax", 4, 10],
+    ["luck", 1, 3], ["minDmg", 1, 2], ["maxDmg", 1, 3], ["attackCount", 1, 1],
+    ["heal", 1, 3], ["immunity", 3, 8], ["goldCap", 10, 30], ["goldBonus", 1, 3],
+  ];
+  const BAD = [
+    ["addDmg", -3, -1], ["reduceDmg", -2, -1], ["hpMax", -10, -4], ["luck", -3, -1],
+    ["minDmg", -2, -1], ["maxDmg", -3, -1], ["heal", -2, -1], ["goldCap", -30, -10],
+    ["goldBonus", -3, -1], ["immunity", -8, -3],
+  ];
   const randomIcon = () => {
-    const icons = ["🐛","🌀","💠","❔","🧩","🔮","☄️","🕳️","👾","🔻"];
+    const icons = ["🐛","🌀","💠","❔","🧩","🔮","☄️","🕳️","👾","🔻","✳️","♻️"];
     return icons[ri(0, icons.length - 1)] + icons[ri(0, icons.length - 1)];
   };
   const randomMods = (n) => {
     const out = {};
-    const keys = AI_MOD_KEYS.filter(k => k !== "mult");
     for (let i = 0; i < n; i++){
-      const k = keys[ri(0, keys.length - 1)];
-      out[k] = (out[k] || 0) + ri(1, 3);
+      const bad = rnd() < 0.55;                     // 坏效果更多
+      const pool = bad ? BAD : GOOD;
+      const pick = pool[ri(0, pool.length - 1)];
+      out[pick[0]] = (out[pick[0]] || 0) + ri(pick[1], pick[2]);
     }
-    if (rnd() < 0.3) out.mult = Math.round((1.1 + rnd() * 0.4) * 10) / 10;
+    if (rnd() < 0.35) out.mult = Math.round((0.7 + rnd() * 0.8) * 10) / 10;
     return out;
   };
+  const modsText = (mods) => {
+    const parts = [];
+    for (const k of Object.keys(mods || {})){
+      const v = mods[k];
+      if (!v) continue;
+      if (k === "mult"){ parts.push(`伤害 ×${v}`); continue; }
+      parts.push(`${AI_MOD_DESC[k] || k} ${v > 0 ? "+" : ""}${v}`);
+    }
+    return parts.join("、");
+  };
+
   const spawn = (name, icon, desc, mods) => {
     S._glitchSeq = (S._glitchSeq || 0) + 1;
     const id = 900 + S._glitchSeq;
-    const def = { id, name: String(name).slice(0, 12) || randomName(), grade: 1, type: "功能类",
-                  desc: String(desc || "一个来历不明的道具。").slice(0, 120), icon: String(icon || randomIcon()).slice(0, 4), mods };
+    const detail = modsText(mods);
+    const def = {
+      id,
+      name: String(name).slice(0, 24) || randomName(),
+      grade: 1,
+      type: "功能类",
+      desc: String(desc || "一个来历不明的道具。").slice(0, 120) + (detail ? `（${detail}）` : ""),
+      icon: String(icon || randomIcon()).slice(0, 8),
+      mods,
+    };
     ITEMS.push(def);
     ITEM_BY_ID.set(id, def);
     a.addItem(id);
     log(`🐛 错误技：获得了「${def.name}」——${def.desc}`, "item");
+    afterStateChange();          // 立刻刷新道具栏与属性
+    renderAll();
   };
 
   if (!aiReady()){
@@ -4833,14 +4879,15 @@ function makeGlitchItem(a){
     return;
   }
   modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
-  const sys = "你是卡牌游戏的设计助手。生成一个完全随机、名字是乱码风格的道具。"
-    + "只输出 JSON：{\"name\":\"2-5个字\",\"icon\":\"两个 emoji\",\"desc\":\"一句话描述\",\"mods\":{...}}。"
-    + "mods 的 key 只能从：" + AI_MOD_KEYS.join("、") + " 里选，给 3 个不同的效果。";
+  const sys = "你是卡牌游戏的设计助手。生成一个完全随机、好坏参半的道具。"
+    + "只输出 JSON：{\"desc\":\"一句话描述\",\"mods\":{...}}。名字不要给（名字由程序随机生成）。"
+    + "mods 的 key 只能从：" + AI_MOD_KEYS.join("、") + " 里选，给 3 个不同的效果，允许出现负数值。";
   aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
-    if (!j || !j.name){ spawn(randomName(), randomIcon(), "三个随机的效果拼在一起。", randomMods(3)); return; }
-    spawn(j.name, j.icon, j.desc, j.mods && typeof j.mods === "object" ? j.mods : randomMods(3));
+    const mods = (j && j.mods && typeof j.mods === "object") ? j.mods : randomMods(3);
+    // 名字一律真随机，不用 AI 给的
+    spawn(randomName(), randomIcon(), (j && j.desc) || "三个随机的效果拼在一起。", mods);
   });
 }
 
@@ -4854,6 +4901,7 @@ function enterCampfire(){
       const n = isSeer() ? 2 : 1;
       opts.push({ name:"占卜", desc:`获得 ${n} 张随机塔罗牌`, icon:"🔮", key:"div" });
     }
+    if (aiReady()) opts.push({ name:"强化（AI）", desc:"随机强化一件道具或一张塔罗牌", icon:"✨", key:"ai" });
     if (hasTent) opts.forEach(o => { o.used = used.has(o.key); });
     return opts;
   };
@@ -5461,6 +5509,10 @@ const CHANGELOG = [
       "结算界面会显示本局获得的塔罗牌",
       "属性详情面板里单独列出「塔罗牌」的加成",
       "火堆新增「强化（AI）」：填写 API Key 后可让 AI 现场强化任意道具或塔罗牌（可重复强化）",
+      "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
+      "火神开道只改造当前位置下方连接的非战斗节点",
+      "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
+      "修复：错误技获得的道具没有立刻出现在道具栏、效果说明不完整",
       "新道具「帐篷」#456：火堆可以连续选择多个选项，每个选项只能用一次",
       "新道具「火神开道」#457：地图上花 3 金币，把下一个非战斗节点变成火堆",
       "新道具「错误技」#458：一次性，获得一个 AI 生成的随机道具（3 个随机效果）",
