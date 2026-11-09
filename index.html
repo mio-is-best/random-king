@@ -1696,6 +1696,8 @@ const CHARS = [
     desc:"获得炮塔，初始 α 与 β 均为 2。" },
   { key:"bomber",     name:"炸弹人",   emoji:"💣", hp:20, ability:-28,
     desc:"获得血量轰炸、金币轰炸、伤害轰炸、减伤轰炸。" },
+  { key:"seer", name:"占卜师", emoji:"🔮", hp:[24,32], ability:-29,
+    desc:"开局携带「占卜」：火堆多一个占卜选项（效果翻倍，获得两张）；地图上的火堆数量翻倍。" },
 ];
 
 /* 角色能力道具：-1 级，不可抽取，被移除后能力就消失 */
@@ -1762,6 +1764,8 @@ const ABILITY_ITEMS = [
     hooks:{onAcquire:(c,a)=>{ a.addItem(-33); }}}),
   D(-27,"角色能力 · 工程师",-1,"功能类","获得炮塔，初始 α 与 β 均为 2。",{icon:"🛠️",draw:false,
     hooks:{onAcquire:(c,a)=>{ const t=a.addItem(280); if(t){ t.alpha=2; t.beta=2; } }}}),
+D(-29,"角色能力 · 占卜师",-1,"功能类","开局携带「占卜」；占卜的效果翻倍（获得 2 张塔罗牌）；地图上的火堆数量翻倍。",{icon:"🔮",draw:false,
+  hooks:{onAcquire:(c,a)=>{ a.addItem(-34); }}}),
   D(-28,"角色能力 · 炸弹人",-1,"攻击类","获得四种轰炸。",{icon:"💣",draw:false,
     hooks:{onAcquire:(c,a)=>{ a.addItem(331); a.addItem(305); a.addItem(344); a.addItem(345); }}}),
 ];
@@ -1772,7 +1776,8 @@ for (const d of ABILITY_ITEMS) ITEMS.push(d);
 const EXTRA_ITEMS = [
   D(-30,"合同",2,"功能类","本局内，道具库里编号 1~28 的道具会变成对应编号的角色的能力（等级跟随原道具）。",{icon:"📜",draw:false}),
 
-  D(-31,"合成宝袋",2,"功能类","获得时：本局道具编号被打乱一次。主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
+  D(-34,"占卜",2,"功能类","火堆多一个选项：获得一张随机塔罗牌。",{icon:"🔮"}),
+D(-31,"合成宝袋",2,"功能类","获得时：本局道具编号被打乱一次。主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
     hooks:{onAcquire:()=>{ if(!shuffleActive()){ shuffleItemIds(); log("合成宝袋：本局的道具编号被打乱了！","good"); } }},
     use:(a)=>{ openCraftBag(); }}),
   D(-32,"贪食无人机",2,"攻击类","每回合造成 a 次 b 点伤害。主动：吃掉一件自己的道具，让 a+1 或 b+3。",{icon:"🛸",draw:false,
@@ -2328,7 +2333,8 @@ function api(item, st){
 }
 
 function randomItemDef(lo, hi){
-  const pool = ITEMS.filter(d => d.id > 0 && d.draw !== false && (!lo && !hi || true) && d.grade >= (lo||0) && d.grade <= (hi??5));
+  // -34「占卜」虽然用负编号，但属于可正常掉落的道具
+  const pool = ITEMS.filter(d => (d.id > 0 || d.id === -34) && d.draw !== false && (!lo && !hi || true) && d.grade >= (lo||0) && d.grade <= (hi??5));
   return pool[ri(0, pool.length-1)] || null;
 }
 
@@ -3059,6 +3065,19 @@ function buildMap(){
     if (isLast) nodes[row[0]].boss = true;
   }
 
+  // 占卜师：地图上的火堆数量翻倍
+  if (S.char && S.char.key === "seer"){
+    const fires = nodes.filter(n => n.type === "campfire");
+    let need = fires.length;
+    if (need > 0){
+      const conv = nodes.filter(n => !n.boss && n.type !== "enemy" && n.type !== "campfire" && n.type !== "tarot");
+      for (const n of conv){
+        if (need <= 0) break;
+        n.type = "campfire";
+        need--;
+      }
+    }
+  }
   for (const n of nodes) if (n.type === "enemy" && !n.idx) n.idx = ++enemyNo;
 
   S.map = nodes;
@@ -3576,6 +3595,11 @@ function enterTarot(){
 
 /* 获得 / 升级一张卡 */
 function takeCard(key, rev){
+  try {
+    const total = (parseInt(localStorage.getItem("rk4_tarot_total") || "0", 10) || 0) + 1;
+    localStorage.setItem("rk4_tarot_total", String(total));
+    if (total >= 5) unlockAch("c_seer");
+  } catch(e){}
   S.cards = S.cards || [];
   const d = tarotDef(key);
   const cur = ownedCard(key);
@@ -4034,6 +4058,7 @@ const CHAR_UNLOCK = {
   ghost2: { desc:"成就「里游魂」", test:() => hasAch("c_ghost2") },
   engineer: { desc:"成就「工程师」", test:() => hasAch("c_engineer") },
   bomber: { desc:"成就「炸弹人」", test:() => hasAch("c_bomber") },
+  seer: { desc:"成就「占卜师」", test:() => hasAch("c_seer") },
 
 };
 
@@ -4536,12 +4561,44 @@ function enterCurrentNode(){
 }
 
 /* 火堆：回血 */
+function isSeer(){ return !!(S.char && S.char.key === "seer"); }
+function ownsDivination(){ return S.items.some(i => i.def.id === -34 && !i.spent); }
+
+/* 随机抽 n 张塔罗牌（不走地图，直接进手牌） */
+function drawRandomCards(n){
+  const got = [];
+  for (let k = 0; k < n; k++){
+    const hasRev = new Set((S.cards || []).filter(c => c.rev).map(c => c.key));
+    const pool = TAROT.filter(d => !hasRev.has(d.key));
+    if (!pool.length) break;
+    const d = pool[ri(0, pool.length - 1)];
+    const cur = ownedCard(d.key);
+    const rev = cur ? true : (rnd() < 0.25);
+    takeCard(d.key, rev);
+    got.push(`${d.name}${rev || cur ? "（逆位）" : "（正位）"}`);
+  }
+  return got;
+}
+
 function enterCampfire(){
   const heal = Math.max(6, Math.round(maxHp() * 0.35));
-  healPlayer(heal);
-  log(`🔥 你在火堆旁休息，回复了 ${heal} 点血量。`, "good");
-  advanceNode();
-  renderAll();
+  const opts = [{ name:"休息", desc:`回复 ${heal} 点血量`, icon:"🔥" }];
+  if (ownsDivination()){
+    const n = isSeer() ? 2 : 1;
+    opts.push({ name:"占卜", desc:`获得 ${n} 张随机塔罗牌`, icon:"🔮" });
+  }
+  chooseOne("火堆", "在火堆旁你要做什么？", opts, (o, idx) => {
+    if (idx === 0){
+      healPlayer(heal);
+      log(`🔥 你在火堆旁休息，回复了 ${heal} 点血量。`, "good");
+    } else {
+      const got = drawRandomCards(isSeer() ? 2 : 1);
+      if (got.length) log(`🔮 占卜：获得 ${got.join("、")}。`, "good");
+      else log("🔮 占卜：能抽到的牌都已经在你手里了。", "sys");
+    }
+    advanceNode();
+    renderAll();
+  });
 }
 
 /* ---------- 道具栏：主动 / 被动 / 一次性 分三排 ---------- */
@@ -5083,6 +5140,8 @@ const CHANGELOG = [
       "免疫属性现在有实际效果：受击时按概率完全抵消这次伤害（概率受幸运加成，上限 95%）",
       "地图连线规则改为：66% 只连一边、33% 两边都连、1% 连到同层相邻节点（可横向移动）",
       "修复：不义之财「失去全部金币」会把负债变少（现在只会更少或持平）",
+      "新道具「占卜」（2 级）：火堆多一个选项，可以换一张随机塔罗牌",
+      "新角色「占卜师」：开局携带占卜，占卜效果翻倍（两张），地图火堆数量翻倍",
     ],
   },
   {
@@ -5589,6 +5648,7 @@ const ACHIEVEMENTS = [
   { id:"c_ghost2",   name:"命不该绝",   desc:"单局以 3 血以下赢下 3 场战斗",       char:"ghost2" },
   { id:"c_engineer", name:"炮塔养成",   desc:"单局内把炮塔的 α 养到 6、β 养到 7",  char:"engineer" },
   { id:"c_bomber",   name:"爆破专家",   desc:"单次攻击造成 100 点以上伤害",        char:"bomber" },
+  { id:"c_seer",     name:"占卜师",     desc:"累计获得 5 张塔罗牌",              char:"seer" },
 ];
 
 function achStore(){
