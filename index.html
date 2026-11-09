@@ -2397,6 +2397,8 @@ function fireHook(name, ctx){
       h(ctx, api(it, st));
       if (it.def.consumeOn === name) destroyItem(it.uid);
     }
+    const ah = it.aiHooks && it.aiHooks[name];
+    if (typeof ah === "function") ah(ctx, api(it, st));
     if (ctx && ctx.stop) break;
   }
   // 塔罗卡牌的钩子
@@ -2406,6 +2408,8 @@ function fireHook(name, ctx){
     if (!d || !side || !side.hooks) continue;
     const h = side.hooks[name];
     if (typeof h === "function") h(ctx, api(cardFakeItem(d), st));
+    const ah = c.aiHooks && c.aiHooks[name];
+    if (typeof ah === "function") ah(ctx, api(cardFakeItem(d), st));
   }
 }
 
@@ -4723,6 +4727,83 @@ function drawRandomCards(n){
 }
 
 
+
+/* ---------------- AI 效果脚本（触发器 + 操作，强调创意而不是纯加属性） ---------------- */
+const AI_TRIGGERS = ["onBattleStart","onKill","onHurt","onAfterHit","onAttackWindup",
+                     "onNodeEnd","onGoldGain","onConsume","onRoundStart","onVictory"];
+const AI_OP_DESC = "gold(金币) heal(回血) hurt(自己掉血) temp(本场临时属性) tempRound(本回合属性) "
+  + "perm(永久属性) strike(对敌人造成伤害) card(获得一张随机塔罗牌) item(获得一件随机道具)";
+
+const AI_OPS = {
+  gold:  (a, v) => a.gold(Math.round(v)),
+  heal:  (a, v) => a.heal(Math.round(v)),
+  hurt:  (a, v) => a.hurt(Math.max(0, Math.round(v))),
+  strike:(a, v) => a.strike(Math.max(1, Math.round(v)), "AI"),
+  card:  (a) => { try { drawRandomCards(1); } catch(e){} },
+  item:  (a) => { try { const d = randomItemDef(1, 3); if (d) a.addItem(d.id); } catch(e){} },
+  temp:  (a, v, k) => a.temp(k || "addDmg", v),
+  tempRound: (a, v, k) => a.tempRound(k || "addDmg", v),
+  perm:  (a, v, k) => a.perm(k || "addDmg", v),
+};
+
+/* 把 AI 给的脚本编译成 hooks */
+function buildAiHooks(specs){
+  const groups = {};
+  for (const spec of (specs || [])){
+    for (const tr of (spec.triggers || [])){
+      const name = String(tr.on || "");
+      if (AI_TRIGGERS.indexOf(name) < 0) continue;
+      const p = (tr.p == null) ? 1 : Math.max(0, Math.min(1, Number(tr.p) || 0));
+      const ops = (tr.ops || []).filter(o => o && AI_OPS[o.op]).slice(0, 4);
+      if (!ops.length) continue;
+      (groups[name] = groups[name] || []).push({ p, ops });
+    }
+  }
+  const out = {};
+  for (const name in groups){
+    out[name] = (ctx, a) => {
+      for (const g of groups[name]){
+        if (g.p < 1 && !chance(g.p)) continue;
+        for (const o of g.ops){
+          try { AI_OPS[o.op](a, Number(o.v) || 0, o.k); } catch(e){}
+        }
+      }
+    };
+  }
+  return out;
+}
+
+/* 把脚本挂到道具实例 / 卡牌实例上（可叠加） */
+function attachAiScript(target, spec, desc){
+  if (!target) return;
+  target.aiScripts = target.aiScripts || [];
+  target.aiScripts.push(spec);
+  target.aiHooks = buildAiHooks(target.aiScripts);
+  if (desc) target.aiDesc = String(desc).slice(0, 120);
+}
+
+/* 没有 AI 时的「创意向」兜底效果（也不是纯属性） */
+const AI_FALLBACK_SCRIPTS = [
+  { desc:"每击杀一个敌人，20% 概率回 2 血。", triggers:[{ on:"onKill", p:0.2, ops:[{op:"heal", v:2}] }] },
+  { desc:"受到伤害时，30% 概率获得 2 金币。", triggers:[{ on:"onHurt", p:0.3, ops:[{op:"gold", v:2}] }] },
+  { desc:"战斗开始时，本场加伤 +3。", triggers:[{ on:"onBattleStart", ops:[{op:"temp", k:"addDmg", v:3}] }] },
+  { desc:"每击杀一个敌人，本回合加伤 +1。", triggers:[{ on:"onKill", ops:[{op:"tempRound", k:"addDmg", v:1}] }] },
+  { desc:"经过一个节点，15% 概率获得一张随机塔罗牌。", triggers:[{ on:"onNodeEnd", p:0.15, ops:[{op:"card"}] }] },
+  { desc:"攻击命中后，10% 概率追击 3 点伤害。", triggers:[{ on:"onAfterHit", p:0.1, ops:[{op:"strike", v:3}] }] },
+  { desc:"战斗开始时，25% 概率获得一件随机道具。", triggers:[{ on:"onBattleStart", p:0.25, ops:[{op:"item"}] }] },
+];
+function randomAiScript(){ return AI_FALLBACK_SCRIPTS[ri(0, AI_FALLBACK_SCRIPTS.length - 1)]; }
+
+/* 供 AI 使用的输出格式说明 */
+function aiScriptPrompt(){
+  return '只输出 JSON，格式：{"desc":"一句话中文效果描述","triggers":[{"on":"触发器","p":0.3,"ops":[{"op":"操作","v":2,"k":"属性名"}]}]}。'
+    + '触发器 on 只能从：' + AI_TRIGGERS.join("、") + '。'
+    + '操作 op 只能从：' + AI_OP_DESC + '。'
+    + 'k 仅在 temp/tempRound/perm 时使用，可选 addDmg/reduceDmg/luck/minDmg/maxDmg/hpMax/attackCount/immunity。'
+    + '要求：最多 2 个触发器、每个触发器最多 3 个操作，数值要小（1~5），'
+    + '必须是「有创意的机制组合」（例如按概率、按击杀、按受伤、按回合），不要写成单纯的属性加成。';
+}
+
 /* ---------------- AI：火堆强化 / 错误技 ---------------- */
 
 const AI_MOD_KEYS = ["addDmg","reduceDmg","boostDmg","hpMax","luck","minDmg","maxDmg",
@@ -4764,23 +4845,24 @@ function openAiBoostPicker(done){
     modalShell(`<h3>✨ AI 正在强化「${esc(name)}」…</h3>
       <div class="msub">稍等片刻。</div>`);
 
-    const sys = "你是一个卡牌游戏的设计助手。你要为一个已有的道具/塔罗牌生成更强的效果。"
-      + "只输出 JSON，不要任何解释。格式：{\"desc\":\"一句话效果描述\",\"mods\":{\"addDmg\":2}}。"
-      + "mods 的 key 只能从这些里选：" + AI_MOD_KEYS.join("、") + "。数值必须是小幅提升（1~5），mult 用 1.1~1.5。";
-    const user = `目标：${name}\n当前效果：${curDesc}\n之前获得过的 AI 强化：${curBoost}\n`
-      + `请给出一次【在现有基础上继续变强】的强化，写出新的效果描述和数值加成。`;
+    const sys = "你是卡牌游戏的设计助手。给一个已有的道具/塔罗牌追加一段"
+      + "有创意的额外机制（按条件触发的小效果），不要单纯堆属性。" + aiScriptPrompt();
+    const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${curBoost}\n`
+      + `请设计一个【和现有效果不同、有记忆点】的额外机制（比如击杀时、受伤时、过关时触发的组合效果）。`;
 
     aiAsk(sys, user, (txt, err) => {
       const j = aiParseJSON(txt);
-      if (!j || !j.desc){
-        closeModal();
-        log(`✨ AI 强化失败：${err || "返回格式不对"}`, "sys");
+      const spec = (j && Array.isArray(j.triggers) && j.triggers.length) ? j : null;
+      closeModal();
+      if (!spec){
+        const fb = randomAiScript();
+        attachAiScript(target, fb, fb.desc);
+        log(`✨ AI 强化「${name}」（本地兜底）：${fb.desc}`, "good");
         if (done) done();
         return;
       }
-      applyAiBoost(target, j.mods || {}, j.desc);
-      closeModal();
-      log(`✨ AI 强化了「${name}」：${j.desc}`, "good");
+      attachAiScript(target, spec, j.desc);
+      log(`✨ AI 强化「${name}」：${j.desc}`, "good");
       if (done) done();
     });
   };
@@ -4853,7 +4935,7 @@ function makeGlitchItem(a){
     return parts.join("、");
   };
 
-  const spawn = (name, icon, desc, mods) => {
+  const spawn = (name, icon, desc, mods, spec) => {
     S._glitchSeq = (S._glitchSeq || 0) + 1;
     const id = 900 + S._glitchSeq;
     const detail = modsText(mods);
@@ -4864,7 +4946,8 @@ function makeGlitchItem(a){
       type: "功能类",
       desc: String(desc || "一个来历不明的道具。").slice(0, 120) + (detail ? `（${detail}）` : ""),
       icon: String(icon || randomIcon()).slice(0, 8),
-      mods,
+      mods: mods || {},
+      hooks: spec ? buildAiHooks([spec]) : {},
     };
     ITEMS.push(def);
     ITEM_BY_ID.set(id, def);
@@ -4875,19 +4958,20 @@ function makeGlitchItem(a){
   };
 
   if (!aiReady()){
-    spawn(randomName(), randomIcon(), "三个随机的效果拼在一起。", randomMods(3));
+    const fb = randomAiScript();
+    spawn(randomName(), randomIcon(), fb.desc, {}, fb);
     return;
   }
   modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
-  const sys = "你是卡牌游戏的设计助手。生成一个完全随机、好坏参半的道具。"
-    + "只输出 JSON：{\"desc\":\"一句话描述\",\"mods\":{...}}。名字不要给（名字由程序随机生成）。"
-    + "mods 的 key 只能从：" + AI_MOD_KEYS.join("、") + " 里选，给 3 个不同的效果，允许出现负数值。";
+  const sys = "你是卡牌游戏的设计助手。生成一个机制完全随机、好坏参半的道具，"
+    + "要有创意（例如按概率触发、按击杀/受伤/过关触发的组合），不要只是加属性。"
+    + aiScriptPrompt() + "名字不要给（名字由程序随机生成）。";
   aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
-    const mods = (j && j.mods && typeof j.mods === "object") ? j.mods : randomMods(3);
+    const spec = (j && Array.isArray(j.triggers) && j.triggers.length) ? j : randomAiScript();
     // 名字一律真随机，不用 AI 给的
-    spawn(randomName(), randomIcon(), (j && j.desc) || "三个随机的效果拼在一起。", mods);
+    spawn(randomName(), randomIcon(), (j && j.desc) || spec.desc, {}, spec);
   });
 }
 
@@ -5508,7 +5592,7 @@ const CHANGELOG = [
       "新角色「占卜师」：开局携带占卜，占卜效果翻倍（两张），地图火堆数量翻倍",
       "结算界面会显示本局获得的塔罗牌",
       "属性详情面板里单独列出「塔罗牌」的加成",
-      "火堆新增「强化（AI）」：填写 API Key 后可让 AI 现场强化任意道具或塔罗牌（可重复强化）",
+      "火堆「强化（AI）」与「错误技」改为 AI 生成机制型效果（击杀/受伤/过关触发的组合），不再只是加属性",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
