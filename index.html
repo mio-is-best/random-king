@@ -2137,8 +2137,8 @@ function aiCfg(){
   const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch(e){ return d; } };
   return {
     key: (get("rk4_ai_key", "") || "").trim(),
-    base: (get("rk4_ai_base", "https://api.openai.com/v1") || "").replace(/\/+$/, ""),
-    model: get("rk4_ai_model", "gpt-4o-mini") || "gpt-4o-mini",
+    base: (get("rk4_ai_base", "https://api.deepseek.com/v1") || "").replace(/\/+$/, ""),
+    model: get("rk4_ai_model", "deepseek-v4.1-flash") || "deepseek-v4.1-flash",
   };
 }
 function aiReady(){ return !!aiCfg().key; }
@@ -2159,8 +2159,8 @@ function openAISettings(){
     const m = (div.querySelector("#ai-model") || {}).value || "";
     try {
       localStorage.setItem("rk4_ai_key", k.trim());
-      localStorage.setItem("rk4_ai_base", b.trim() || "https://api.openai.com/v1");
-      localStorage.setItem("rk4_ai_model", m.trim() || "gpt-4o-mini");
+      localStorage.setItem("rk4_ai_base", b.trim() || "https://api.deepseek.com/v1");
+      localStorage.setItem("rk4_ai_model", m.trim() || "deepseek-v4.1-flash");
     } catch(e){}
     closeModal();
     renderMenuSafe();
@@ -4016,6 +4016,7 @@ function openTitleMenu(){
       <button class="btn ghost block" onclick="closeModal(); openCodex()">📖 道 具 图 鉴</button>
       <button class="btn ghost block" onclick="closeModal(); openRules()">❓ 玩 法 说 明</button>
       <button class="btn ghost block" onclick="closeModal(); startTutorial()">🎓 新 手 教 程</button>
+      <button class="btn ghost block" onclick="closeModal(); openAISettings()">🤖 AI 设置（${aiReady() ? "已填写" : "未填写"}）</button>
     </div>
     <div class="modal-close"><button class="btn ghost sm" onclick="closeModal()">关 闭</button></div>`);
 }
@@ -4099,7 +4100,6 @@ function openMenu(){
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
 
       <button class="btn ghost block" onclick="openTarotList()">🔮 塔 罗 牌（${(S.cards||[]).length}/22）</button>
-      <button class="btn ghost block" onclick="openAISettings()">🤖 AI 设置（${aiReady() ? "已填写" : "未填写"}）</button>
       <button class="btn ghost block" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost block" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       <button class="btn blood block" onclick="quitToTitle()">退 出 游 戏</button>
@@ -5445,7 +5445,7 @@ const CHANGELOG = [
       "新道具「帐篷」#456：火堆可以连续选择多个选项，每个选项只能用一次",
       "新道具「火神开道」#457：地图上花 3 金币，把下一个非战斗节点变成火堆",
       "新道具「错误技」#458：一次性，获得一个 AI 生成的随机道具（3 个随机效果）",
-      "菜单新增「AI 设置」，可填写 API Key / 接口地址 / 模型（保存在本机）",
+      "标题页菜单新增「🤖 AI 设置」：可填写 API Key / 接口地址 / 模型（默认 DeepSeek · deepseek-v4.1-flash）",
     ],
   },
   {
