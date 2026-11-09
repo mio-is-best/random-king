@@ -81,6 +81,17 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.tarot-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.tarot-card{flex:1 1 150px;max-width:200px;background:linear-gradient(180deg,#241d36,#171223);
+  border:1px solid #4a3f63;border-radius:12px;padding:12px 10px;cursor:pointer;text-align:center;
+  color:#d8d2e6;font-family:inherit;transition:.15s}
+.tarot-card:hover{border-color:var(--gold);transform:translateY(-2px)}
+.tarot-card.rev{border-color:#7b4a8f;background:linear-gradient(180deg,#2a1c3a,#1a1122)}
+.tarot-card .tc-ico{font-size:26px}
+.tarot-card .tc-name{font-size:14px;font-weight:800;color:var(--gold);margin-top:4px}
+.tarot-card.rev .tc-name{color:#d79be8}
+.tarot-card .tc-pos{font-size:10px;letter-spacing:.2em;color:#8d849b;margin:2px 0 6px}
+.tarot-card .tc-desc{font-size:11.5px;line-height:1.6;color:#b9b0c8;text-align:left}
 .draw-tools{display:flex;gap:10px;justify-content:center;margin-top:12px}
 .draw-btn{width:42px;height:42px;border-radius:50%;border:1px solid #3a3150;
   background:linear-gradient(180deg,#221c33,#171223);color:#e8c46a;font-size:18px;
@@ -857,6 +868,13 @@ function stats(){
   };
   apply(S.perm);
   for (const it of S.items){ if (it.spent) continue; apply(it.mods || it.def.mods); if (it.dyn) it.dyn(st); }
+  // 塔罗卡牌
+  for (const c of (S.cards || [])){
+    const side = cardSide(c.key, c.rev);
+    if (!side) continue;
+    if (side.mods) apply(side.mods);
+    if (typeof side.dyn === "function") side.dyn(st);
+  }
   if (S.goldenChild > 0) st.addDmg += 8;        // 金嗓子：之后两关伤害 +8
   if (S.battle && !S.battle.over){ apply(S.battle.temp); apply(S.battle.roundTemp); }
   // 结算类 dyn（犹大、塔盾的加伤/减伤互转）放在最后，才能算上战斗内加成
@@ -1943,6 +1961,134 @@ function openCraftBag(){
   render();
 }
 
+
+/* ============================================================
+   塔罗卡牌系统：22 张大阿卡那，正位 / 逆位各一套效果
+   逆位 = 正位的强化改造版
+   ============================================================ */
+const TAROT = [
+  { key:"fool", no:0, name:"愚者", ico:"🃏",
+    up:{ desc:"幸运 +1；每场战斗开始获得 3 金币。",
+         mods:{ luck:1 },
+         hooks:{ onBattleStart:(c,a)=>{ a.gold(3); } } },
+    rev:{ desc:"幸运 +2；每场战斗开始获得 6 金币，且本场加伤 +3。",
+          mods:{ luck:2 },
+          hooks:{ onBattleStart:(c,a)=>{ a.gold(6); a.temp("addDmg",3); } } } },
+
+  { key:"magician", no:1, name:"魔术师", ico:"🎩",
+    up:{ desc:"幸运 +2。", mods:{ luck:2 } },
+    rev:{ desc:"幸运 +4。", mods:{ luck:4 } } },
+
+  { key:"priestess", no:2, name:"女祭司", ico:"🌙",
+    up:{ desc:"减伤 +1。", mods:{ reduceDmg:1 } },
+    rev:{ desc:"减伤 +2。", mods:{ reduceDmg:2 } } },
+
+  { key:"empress", no:3, name:"皇后", ico:"👑",
+    up:{ desc:"回复量 ×1.5。", mods:{ healMult:1.5 } },
+    rev:{ desc:"回复量 ×2。", mods:{ healMult:2 } } },
+
+  { key:"emperor", no:4, name:"皇帝", ico:"🏛️",
+    up:{ desc:"金币上限 +30。", mods:{ goldCap:30 } },
+    rev:{ desc:"金币上限 +60。", mods:{ goldCap:60 } } },
+
+  { key:"hierophant", no:5, name:"教皇", ico:"📜",
+    up:{ desc:"商店多 1 个格子。", mods:{ shopSlots:1 } },
+    rev:{ desc:"商店多 2 个格子。", mods:{ shopSlots:2 } } },
+
+  { key:"lovers", no:6, name:"恋人", ico:"💞",
+    up:{ desc:"每回合攻击次数 +1。", mods:{ attackCount:1 } },
+    rev:{ desc:"每回合攻击次数 +2。", mods:{ attackCount:2 } } },
+
+  { key:"chariot", no:7, name:"战车", ico:"🛡️",
+    up:{ desc:"最小伤害 +2。", mods:{ minDmg:2 } },
+    rev:{ desc:"最小伤害 +4。", mods:{ minDmg:4 } } },
+
+  { key:"strength", no:8, name:"力量", ico:"💪",
+    up:{ desc:"加伤 +3。", mods:{ addDmg:3 } },
+    rev:{ desc:"加伤 +6。", mods:{ addDmg:6 } } },
+
+  { key:"hermit", no:9, name:"隐者", ico:"🕯️",
+    up:{ desc:"幸运 -1，但伤害 ×1.25。", mods:{ luck:-1, mult:1.25 } },
+    rev:{ desc:"幸运 -1，但伤害 ×1.5。", mods:{ luck:-1, mult:1.5 } } },
+
+  { key:"wheel", no:10, name:"命运之轮", ico:"🎡",
+    up:{ desc:"每通过一个节点，20% 概率获得 15 金币。",
+         hooks:{ onNodeEnd:(c,a)=>{ if (chance(0.20)) a.gold(15); } } },
+    rev:{ desc:"每通过一个节点，35% 概率获得 25 金币。",
+          hooks:{ onNodeEnd:(c,a)=>{ if (chance(0.35)) a.gold(25); } } } },
+
+  { key:"justice", no:11, name:"正义", ico:"⚖️",
+    up:{ desc:"每次花钱返还 1 金币。",
+         hooks:{ onSpend:(c,a)=>{ a.gold(1); } } },
+    rev:{ desc:"每次花钱返还 2 金币。",
+          hooks:{ onSpend:(c,a)=>{ a.gold(2); } } } },
+
+  { key:"hanged", no:12, name:"倒吊人", ico:"🪢",
+    up:{ desc:"最大伤害 +3，但血量上限 -5。", mods:{ maxDmg:3, hpMax:-5 } },
+    rev:{ desc:"最大伤害 +6，但血量上限 -5。", mods:{ maxDmg:6, hpMax:-5 } } },
+
+  { key:"death", no:13, name:"死神", ico:"💀",
+    up:{ desc:"每击杀一个敌人回复 2 点血量。",
+         hooks:{ onKill:(c,a)=>{ a.heal(2); } } },
+    rev:{ desc:"每击杀一个敌人回复 4 点血量。",
+          hooks:{ onKill:(c,a)=>{ a.heal(4); } } } },
+
+  { key:"temperance", no:14, name:"节制", ico:"🏺",
+    up:{ desc:"免疫 +5。", mods:{ immunity:5 } },
+    rev:{ desc:"免疫 +10。", mods:{ immunity:10 } } },
+
+  { key:"devil", no:15, name:"恶魔", ico:"😈",
+    up:{ desc:"加伤 +5，但每场战斗开始失去 2 点血量。",
+         mods:{ addDmg:5 },
+         hooks:{ onBattleStart:(c,a)=>{ a.hurt(2); } } },
+    rev:{ desc:"加伤 +10，但每场战斗开始失去 2 点血量。",
+          mods:{ addDmg:10 },
+          hooks:{ onBattleStart:(c,a)=>{ a.hurt(2); } } } },
+
+  { key:"tower", no:16, name:"塔", ico:"🗼",
+    up:{ desc:"伤害 ×1.5，但减伤 -2。", mods:{ mult:1.5, reduceDmg:-2 } },
+    rev:{ desc:"伤害 ×1.8，但减伤 -2。", mods:{ mult:1.8, reduceDmg:-2 } } },
+
+  { key:"star", no:17, name:"星星", ico:"⭐",
+    up:{ desc:"每场战斗开始回复 3 点血量。",
+         hooks:{ onBattleStart:(c,a)=>{ a.heal(3); } } },
+    rev:{ desc:"每场战斗开始回复 6 点血量。",
+          hooks:{ onBattleStart:(c,a)=>{ a.heal(6); } } } },
+
+  { key:"moon", no:18, name:"月亮", ico:"🌕",
+    up:{ desc:"幸运 +3，但金币上限 -20。", mods:{ luck:3, goldCap:-20 } },
+    rev:{ desc:"幸运 +6，但金币上限 -20。", mods:{ luck:6, goldCap:-20 } } },
+
+  { key:"sun", no:19, name:"太阳", ico:"☀️",
+    up:{ desc:"每次击杀额外获得 5 金币。", mods:{ goldBonus:5 } },
+    rev:{ desc:"每次击杀额外获得 10 金币。", mods:{ goldBonus:10 } } },
+
+  { key:"judgement", no:20, name:"审判", ico:"📯",
+    up:{ desc:"每击杀一个敌人获得 1 金币。",
+         hooks:{ onKill:(c,a)=>{ a.gold(1); } } },
+    rev:{ desc:"每击杀一个敌人获得 2 金币并回复 1 点血量。",
+          hooks:{ onKill:(c,a)=>{ a.gold(2); a.heal(1); } } } },
+
+  { key:"world", no:21, name:"世界", ico:"🌍",
+    up:{ desc:"加伤 +1，减伤 +1，幸运 +1。", mods:{ addDmg:1, reduceDmg:1, luck:1 } },
+    rev:{ desc:"加伤 +2，减伤 +2，幸运 +2。", mods:{ addDmg:2, reduceDmg:2, luck:2 } } },
+];
+
+const TAROT_BY_KEY = new Map(TAROT.map(c => [c.key, c]));
+
+function tarotDef(key){ return TAROT_BY_KEY.get(key) || null; }
+function ownedCard(key){ return (S.cards || []).find(c => c.key === key) || null; }
+function cardSide(key, rev){
+  const d = tarotDef(key);
+  if (!d) return null;
+  return rev ? d.rev : d.up;
+}
+function cardName(c){
+  const d = tarotDef(c.key);
+  return d ? `${d.name}${c.rev ? "（逆位）" : "（正位）"}` : "未知卡牌";
+}
+function cardFakeItem(d){ return { uid: -1000, def: { name: "卡牌·" + (d ? d.name : "") } }; }
+
 /* ---------------- 日志 ---------------- */
 /* 日志框滚到最新一条（重绘后的新节点要等一帧才有正确高度） */
 /* 日志是否贴在底部（留 24px 容差） */
@@ -2108,6 +2254,14 @@ function fireHook(name, ctx){
       if (it.def.consumeOn === name) destroyItem(it.uid);
     }
     if (ctx && ctx.stop) break;
+  }
+  // 塔罗卡牌的钩子
+  for (const c of (S.cards || [])){
+    const d = tarotDef(c.key);
+    const side = cardSide(c.key, !!c.rev);
+    if (!d || !side || !side.hooks) continue;
+    const h = side.hooks[name];
+    if (typeof h === "function") h(ctx, api(cardFakeItem(d), st));
   }
 }
 
@@ -2773,7 +2927,7 @@ function buildMap(){
   };
   const nonCombat = () => {
     const r = rnd();
-    return r < 0.34 ? "chest" : (r < 0.60 ? "shop" : (r < 0.80 ? "campfire" : "event"));
+    return r < 0.30 ? "chest" : (r < 0.52 ? "shop" : (r < 0.70 ? "campfire" : (r < 0.86 ? "event" : "tarot")));
   };
 
   // 行宽：从 1 开始逐行变宽，最多 5 个（岔路越多，行越宽，但不会失控）
@@ -2877,7 +3031,7 @@ function extendMapForShadow(){
 
   const nonCombat = () => {
     const r = rnd();
-    return r < 0.34 ? "chest" : (r < 0.60 ? "shop" : (r < 0.80 ? "campfire" : "event"));
+    return r < 0.30 ? "chest" : (r < 0.52 ? "shop" : (r < 0.70 ? "campfire" : (r < 0.86 ? "event" : "tarot")));
   };
   const addNode = (r, type) => {
     const n = { id: S.map.length, row: r, type, next: [] };
@@ -2918,6 +3072,7 @@ function extendMapForShadow(){
 function newRun(charKey, seed){
   S.shuffleMap = null;
   S.mapStrokes = [];
+  S.cards = [];              // 塔罗卡牌
   S.runStart = Date.now();      // 本局开始时间（通关界面显示用时）
   S.drawTool = null;
   S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
@@ -3302,6 +3457,107 @@ function shopSlots(){
   return clamp(stats().shopSlots, 1, 6);
 }
 
+
+/* ---------------- 塔罗：占卜节点 ---------------- */
+
+/* 抽 3 张候选：没拿过的牌随机，已有正位的牌可以出逆位来升级 */
+function tarotOffers(n = 3){
+  const out = [];
+  const owned = S.cards || [];
+  const hasRev = new Set(owned.filter(c => c.rev).map(c => c.key));
+  const hasUp = new Set(owned.filter(c => !c.rev).map(c => c.key));
+
+  const fresh = TAROT.filter(d => !hasRev.has(d.key) && !hasUp.has(d.key));
+  const upgradable = TAROT.filter(d => hasUp.has(d.key));
+
+  const shuffled = (arr) => arr.slice().sort(() => rnd() - 0.5);
+
+  // 优先给新牌；高关层时更容易给逆位升级
+  const poolFresh = shuffled(fresh);
+  for (const d of poolFresh){
+    if (out.length >= n) break;
+    const rev = rnd() < (S.depth >= 6 ? 0.35 : 0.2);
+    out.push({ key: d.key, rev, upgrade:false });
+  }
+  // 不够就用升级选项补
+  for (const d of shuffled(upgradable)){
+    if (out.length >= n) break;
+    out.push({ key: d.key, rev:true, upgrade:true });
+  }
+  return out;
+}
+
+function enterTarot(){
+  const offers = tarotOffers(3);
+  if (!offers.length){
+    log("占卜师：「命运已经全在你手中了。」", "sys");
+    advanceNode();
+    return;
+  }
+  const cardsHTML = offers.map((o, i) => {
+    const d = tarotDef(o.key);
+    const side = cardSide(o.key, o.rev);
+    return `<button class="tarot-card ${o.rev ? "rev" : ""}" data-tarot="${i}">
+      <div class="tc-ico">${d.ico}</div>
+      <div class="tc-name">${esc(d.name)}</div>
+      <div class="tc-pos">${o.rev ? "逆 位" : "正 位"}</div>
+      <div class="tc-desc">${esc(side.desc)}</div>
+    </button>`;
+  }).join("");
+
+  const div = modalShell(`<h3>🔮 占卜师</h3>
+    <div class="msub">选择一张塔罗牌带走，它的力量会一直陪伴本局。</div>
+    <div class="tarot-row">${cardsHTML}</div>
+    <div class="modal-close"><button class="btn ghost sm" id="tarot-skip">不要了</button></div>`);
+
+  div.querySelectorAll("[data-tarot]").forEach(btn => {
+    btn.onclick = () => {
+      const o = offers[Number(btn.dataset.tarot)];
+      takeCard(o.key, o.rev);
+      closeModal();
+      advanceNode();
+      renderAll();
+    };
+  });
+  const skip = div.querySelector("#tarot-skip");
+  if (skip) skip.onclick = () => { closeModal(); advanceNode(); renderAll(); };
+}
+
+/* 获得 / 升级一张卡 */
+function takeCard(key, rev){
+  S.cards = S.cards || [];
+  const d = tarotDef(key);
+  const cur = ownedCard(key);
+  if (cur){
+    cur.rev = true;
+    log(`逆位苏醒：${d.name} 强化为逆位。`, "good");
+  } else {
+    S.cards.push({ key, rev: !!rev });
+    log(`获得塔罗牌：${d.name}${rev ? "（逆位）" : "（正位）"}`, "good");
+  }
+}
+
+/* 查看已拥有的卡牌 */
+function openTarotList(){
+  const list = S.cards || [];
+  const rows = list.length ? list.map(c => {
+    const d = tarotDef(c.key);
+    const side = cardSide(c.key, c.rev);
+    return `<div class="modal-row" style="align-items:flex-start">
+      <div class="mi">${d.ico}</div>
+      <div style="flex:1">
+        <div class="mn">${esc(d.name)}<span style="color:${c.rev ? "#c98bd6" : "var(--gold)"};font-size:11px"> · ${c.rev ? "逆位" : "正位"}</span></div>
+        <div class="md">${esc(side.desc)}</div>
+      </div>
+    </div>`;
+  }).join("") : `<div class="empty-note">还没有任何塔罗牌</div>`;
+
+  modalShell(`<h3>🔮 塔罗牌（${list.length}/22）</h3>
+    <div class="msub">逆位是正位的强化版，同一张牌再抽到会升级成逆位。</div>
+    ${rows}
+    <div class="modal-close"><button class="btn sm" onclick="closeModal()">关 闭</button></div>`);
+}
+
 function enterShop(){
   if (stats().noShop){
     log("经济危机：这一层没有商店。", "sys");
@@ -3643,6 +3899,7 @@ function openMenu(){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
 
+      <button class="btn ghost block" onclick="openTarotList()">🔮 塔 罗 牌（${(S.cards||[]).length}/22）</button>
       <button class="btn ghost block" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost block" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       <button class="btn blood block" onclick="quitToTitle()">退 出 游 戏</button>
@@ -3942,6 +4199,7 @@ function renderTitle(){
     <div style="text-align:center;margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
       <button class="btn" id="btn-start">开 始 冒 险</button>
       <button class="btn ghost" onclick="openRules()">玩 法 说 明</button>
+      <button class="btn ghost" onclick="openTarotList()">🔮 塔 罗 牌</button>
       <button class="btn ghost" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       ${maxCharStars() >= 3
@@ -4132,6 +4390,7 @@ function renderMap(){
     shop:     { ico:"🏪", lbl:()=> "商店" },
     campfire: { ico:"🔥", lbl:()=> "火堆" },
     event:    { ico:"❔", lbl:()=> "事件" },
+  tarot:    { ico:"🔮", lbl:()=> "占卜" },
   };
   const doneSet = new Set(S.mapDone || []);
   const reachSet = new Set(S.reach || []);
@@ -4211,6 +4470,7 @@ function enterNode(id){
   else if (node.type === "chest") enterChest();
   else if (node.type === "shop") enterShop();
   else if (node.type === "campfire") enterCampfire();
+  else if (node.type === "tarot") enterTarot();
   else enterEvent();
 }
 
@@ -4755,6 +5015,17 @@ function bindAccountButtons(){
    维护方式：每次更新在数组最前面加一条 { date, title, items:[] }
    ============================================================ */
 const CHANGELOG = [
+  {
+    date: "2026-11-09",
+    title: "塔罗卡牌系统",
+    items: [
+      "新增塔罗卡牌系统：22 张大阿卡那，各有正位与逆位两种效果",
+      "正位：每张牌一套独立效果；逆位：在正位基础上强化（数值更高）",
+      "地图新增「🔮 占卜」节点：从 3 张候选里选一张带走",
+      "同一张牌再次抽到会升级为逆位（只占一个卡位，共 22 张）",
+      "局内菜单新增「🔮 塔罗牌」可随时查看已拥有的牌与效果",
+    ],
+  },
   {
     date: "2026-11-08",
     title: "云存档修复 · 宝袋编号 · 情报里该隐模式",
