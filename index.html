@@ -1806,6 +1806,7 @@ D(457,"火神开道",3,"功能类","主动：只能在地图界面使用，花�
   }}),
 D(458,"错误技",0,"功能类","一次性：获得一个完全随机的道具（AI 生成，带 3 个随机效果；没填 API Key 时本地随机生成）。",{icon:"🐛",kind:"oneshot",
   use:(a)=>{ makeGlitchItem(a); }}),
+D(459,"灼热升级",2,"功能类","火堆对道具的多次强化改为叠加：多个效果可以同时存在，描述也会同时显示（只对拿到它之后的强化生效）。",{icon:"🔥"}),
 D(455,"占卜",2,"功能类","火堆多一个选项：获得一张随机塔罗牌。",{icon:"🔮"}),
 D(-31,"合成宝袋",2,"功能类","获得时：本局道具编号被打乱一次。主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
     hooks:{onAcquire:()=>{ if(!shuffleActive()){ shuffleItemIds(); log("合成宝袋：本局的道具编号被打乱了！","good"); } }},
@@ -3808,7 +3809,7 @@ function openTarotList(){
       <div class="mi">${d.ico}</div>
       <div style="flex:1">
         <div class="mn">${esc(d.name)}<span style="color:${c.rev ? "#c98bd6" : "var(--gold)"};font-size:11px"> · ${c.rev ? "逆位" : "正位"}</span></div>
-        <div class="md">${esc(side.desc)}</div>
+        <div class="md">${esc(c.aiDesc || side.desc)}</div>
       </div>
     </div>`;
   }).join("") : `<div class="empty-note">还没有任何塔罗牌</div>`;
@@ -4782,7 +4783,7 @@ function drawRandomCards(n){
 
 
 /* ---------------- AI 效果脚本（触发器 + 操作，强调创意而不是纯加属性） ---------------- */
-const AI_TRIGGERS = ["onBattleStart","onKill","onHurt","onAfterHit","onAttackWindup",
+const AI_TRIGGERS = ["onUse","onBattleStart","onKill","onHurt","onAfterHit","onAttackWindup",
                      "onNodeEnd","onGoldGain","onConsume","onRoundStart","onVictory"];
 const AI_OP_DESC = "gold(金币) heal(回血) hurt(自己掉血) temp(本场临时属性) tempRound(本回合属性) "
   + "perm(永久属性) strike(对敌人造成伤害) card(获得一张随机塔罗牌) item(获得一件随机道具)";
@@ -4844,14 +4845,24 @@ function sanitizeBoostSpec(spec){
   return { desc: spec.desc, triggers: [{ on: tr.on, p: 1, ops }] };
 }
 
-/* 挂到道具/卡牌上；replace=true 时只保留这一次强化（火堆强化用） */
+/* 挂到道具/卡牌上；replace=true 时只保留这一次强化（火堆强化用）
+   拥有「灼热升级」(#459) 时改为叠加，且只影响拿到它之后的强化 */
 function attachAiScript(target, spec, desc, replace){
   if (!target || !spec) return;
   const clean = replace ? sanitizeBoostSpec(spec) : spec;
   if (!clean) return;
-  target.aiScripts = replace ? [clean] : (target.aiScripts || []).concat([clean]);
+  const stack = !!(S.items || []).some(i => i.def.id === 459 && !i.spent);
+  if (replace && !stack){
+    target.aiScripts = [clean];
+    target.aiDescs = desc ? [String(desc)] : target.aiDescs || [];
+    target.boostLevel = (target.boostLevel || 0) + 1;
+  } else {
+    target.aiScripts = (target.aiScripts || []).concat([clean]);
+    target.aiDescs = (target.aiDescs || []).concat(desc ? [String(desc)] : []);
+    target.boostLevel = (target.boostLevel || 0) + 1;
+  }
   target.aiHooks = buildAiHooks(target.aiScripts);
-  if (desc) target.aiDesc = String(desc).slice(0, 120);
+  target.aiDesc = (target.aiDescs || []).join("；").slice(0, 240);
   if (typeof afterStateChange === "function") { try { afterStateChange(); } catch(e){} }
 }
 
@@ -4918,9 +4929,13 @@ function openAiBoostPicker(done){
     modalShell(`<h3>✨ AI 正在强化「${esc(name)}」…</h3>
       <div class="msub">稍等片刻。</div>`);
 
-    const sys = "你是卡牌游戏的设计助手。给一个已有的道具/塔罗牌追加**一个**正面机制"
-      + "（100% 触发、只带来好处，例如击杀时得金币、战斗开始回血、命中后追击）。"
-      + "只输出 JSON：{\"desc\":\"一句话描述\",\"triggers\":[{\"on\":\"onKill\",\"ops\":[{\"op\":\"gold\",\"v\":2}]}]}。"
+    const isActive = isItem && !!target.def.use;
+    const forceOn = isActive ? "onUse" : "onKill";
+    const sys = "你是卡牌游戏的设计助手。为一个已有的道具/塔罗牌生成**一个**正面机制"
+      + "（100% 触发、只带来好处）。"
+      + (isActive ? "注意：这个道具是主动使用的，机制必须在**使用它的时候**触发，on 必须是 \"onUse\"。"
+                  : "可以选择合适的触发时机。")
+      + "只输出 JSON：{\"desc\":\"一句话描述\",\"triggers\":[{\"on\":\"" + forceOn + "\",\"ops\":[{\"op\":\"gold\",\"v\":2}]}]}。"
       + "on 只能从 " + AI_TRIGGERS.join("、") + "；op 只能从 " + AI_OP_DESC + "；只给 1 个触发器、最多 2 个操作、数值 1~5，必须为正。";
     const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${curBoost}\n`
       + `请设计一个【和现有效果不同、有记忆点】的额外机制（比如击杀时、受伤时、过关时触发的组合效果）。`;
@@ -5226,6 +5241,11 @@ function useItem(uid){
   try { ok = it.def.use(a, it); } catch(e){ console.error(e); ok = false; }
   hideTip();                 // 触屏没有 mouseleave，用完主动把提示收起来
   if (ok === false) return;
+  // AI 强化的「主动效果」：使用时触发
+  try {
+    const ah = it.aiHooks && it.aiHooks.onUse;
+    if (typeof ah === "function") ah({}, api(it, stats()));
+  } catch(e){}
   if (it.def.kind === "oneshot") destroyItem(it.uid);
   afterStateChange();
   resolveDeath();      // 自杀式道具（反骨刀等）也要走死亡结算
@@ -5677,7 +5697,10 @@ const CHANGELOG = [
       "AI 调用失败时会在日志里说明原因，并自动改用本地效果",
       "火堆强化只给一个正面效果（100% 触发、无负数值），多次强化会覆盖",
       "修复：无帐篷时火堆强化后不会结束节点",
-      "错误技生成的道具只在本局存在、不进图鉴，强化后描述会显示【AI 强化】内容",
+      "错误技生成的道具只在本局存在、不进图鉴",
+      "火堆强化会直接替换道具的描述，名字后面加上「+」（强化几次就几个 +）",
+      "主动/一次性道具的强化效果也是在使用时触发（不会变成被动）",
+      "新道具「灼热升级」#459：之后的强化改为叠加，多个效果与描述同时存在",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
@@ -6466,7 +6489,7 @@ function victory(){
               <div class="tc-ico">${d.ico}</div>
               <div class="tc-name">${esc(d.name)}</div>
               <div class="tc-pos">${c.rev ? "逆 位" : "正 位"}</div>
-              <div class="tc-desc">${esc(side.desc)}</div></div>`; }).join("")}
+              <div class="tc-desc">${esc(c.aiDesc || side.desc)}</div></div>`; }).join("")}
         </div>
       </div>` : ""}
       <div style="margin-top:26px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
@@ -6986,7 +7009,9 @@ function bindTips(){
 
 /* 道具实例的名称/描述（部分道具获得时会确定数值） */
 function itName(it){
-  return it.name || it.def.name;
+  const base = it.name || it.def.name;
+  const lv = it.boostLevel || 0;
+  return lv > 0 ? base + "+".repeat(Math.min(lv, 3)) : base;
 }
 function itDesc(it){
   // 有「实时数值」描述的道具（如炮塔的 α/β）每次读取都按当前数值生成
@@ -6999,7 +7024,7 @@ function itDesc(it){
     const parts = Object.keys(g).filter(k => g[k]).map(k => `${names[k] || k} +${g[k]}`);
     if (parts.length) base += `（已成长：${parts.join("、")}）`;
   }
-  if (it.aiDesc) base += `\n【AI 强化】${it.aiDesc}`;
+  if (it.aiDesc) return it.aiDesc;      // AI 强化直接替换原描述
   return base;
 }
 function moveTip(ev){
