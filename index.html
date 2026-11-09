@@ -81,6 +81,11 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.tarot-strip{display:flex;align-items:center;gap:6px;justify-content:center;flex-wrap:wrap;
+  margin-top:10px;padding:6px 10px;border-radius:999px;background:#1a1527;border:1px solid #2f2745;cursor:pointer}
+.tarot-strip .ts-label{font-size:11px;letter-spacing:.16em;color:var(--gold-dim)}
+.tarot-strip .ts-card{font-size:16px;line-height:1;filter:drop-shadow(0 0 4px rgba(232,196,106,.35))}
+.tarot-strip .ts-card.rev{filter:drop-shadow(0 0 5px rgba(200,120,220,.6))}
 .tarot-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
 .tarot-card{flex:1 1 150px;max-width:200px;background:linear-gradient(180deg,#241d36,#171223);
   border:1px solid #4a3f63;border-radius:12px;padding:12px 10px;cursor:pointer;text-align:center;
@@ -2416,6 +2421,15 @@ function spendHp(n){
 
 function hurtPlayer(n, opts={}){
   const B = S.battle;
+  // 免疫：受击时按概率完全抵消这次伤害
+  if (n > 0){
+    const im = stats().immunity || 0;
+    if (im > 0 && chance(im / 100)){
+      addLog(`免疫生效！抵消了 ${n} 点伤害。`, "good");
+      if (B && !B.over) fireHook("onImmune", { dmg: n });
+      return false;
+    }
+  }
   const before = S.hp;
   S.hp = Math.max(0, S.hp - n);
   addLog(`你失去了 ${before - S.hp} 点血量（${S.hp}/${maxHp()}）`, "hurt");
@@ -4428,6 +4442,10 @@ function renderMap(){
         <button class="btn ghost sm" onclick="openCodex()">道 具 图 鉴</button>
       </div>
       <div class="map-panel" id="map-panel"><div class="map-wrap"><svg class="map-lines" id="map-lines"></svg>${rows}<canvas id="map-draw"></canvas></div></div>
+      ${(S.cards || []).length ? `<div class="tarot-strip" onclick="openTarotList()">
+        <span class="ts-label">🔮 塔罗</span>
+        ${(S.cards || []).map(c => { const d = tarotDef(c.key); return `<span class="ts-card ${c.rev ? "rev" : ""}" title="${esc(d.name)}${c.rev ? "（逆位）" : "（正位）"}">${d.ico}</span>`; }).join("")}
+      </div>` : ""}
       <div class="draw-tools">
         <button class="draw-btn ${S.drawTool === "pen" ? "on" : ""}" id="btn-pen" title="画笔">✏️</button>
         <button class="draw-btn ${S.drawTool === "eraser" ? "on" : ""}" id="btn-eraser" title="橡皮擦">🧽</button>
@@ -5024,6 +5042,8 @@ const CHANGELOG = [
       "地图新增「🔮 占卜」节点：从 3 张候选里选一张带走",
       "同一张牌再次抽到会升级为逆位（只占一个卡位，共 22 张）",
       "局内菜单新增「🔮 塔罗牌」可随时查看已拥有的牌与效果",
+      "地图界面新增「🔮 塔罗」卡牌条，拿到的牌会直接显示在这里，点一下看详情",
+      "免疫属性现在有实际效果：受击时按概率完全抵消这次伤害（概率受幸运加成，上限 95%）",
     ],
   },
   {
