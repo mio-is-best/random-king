@@ -5018,7 +5018,9 @@ function aiCodePrompt(){
     + 'a.addItem(道具编号) 给道具、drawRandomCards(n) 抽塔罗牌、S（存档对象）、chance(p) 概率判定、ri(a,b) 随机整数、log(文本)。'
     + '属性名可用 addDmg/reduceDmg/luck/minDmg/maxDmg/hpMax/attackCount/heal/goldCap。'
     + '限制：不要写 while/for(;;)、不要访问 localStorage/document/fetch，代码不超过 15 行，数值要克制（1~6）。'
-    + '要求：必须是「能改变玩法的新机制」，不要只是加属性、不要总是回血。';
+    + '要求：必须是「能改变玩法的新机制」，不要只是加属性、不要总是回血。'
+    + '另外请给一个 mode 字段：passive（被动，默认）、active（主动道具，使用时触发 onUse）、oneshot（一次性，使用后消失）。'
+    + '如果 mode 是 active 或 oneshot，hooks 里必须有 onUse。';
 }
 
 /* ---------------- AI：火堆强化 / 错误技 ---------------- */
@@ -5164,6 +5166,11 @@ function makeGlitchItem(a){
     S._glitchSeq = (S._glitchSeq || 0) + 1;
     const id = 900 + S._glitchSeq;
     const detail = modsText(mods);
+    const hooks = spec ? (Object.keys(compileAiSpec(spec)).length ? compileAiSpec(spec) : buildAiHooks([spec])) : {};
+    let mode = spec && spec.mode;
+    if (mode !== "active" && mode !== "oneshot" && mode !== "passive"){
+      mode = (hooks && hooks.onUse) ? "active" : "passive";   // 有 onUse 就当主动道具
+    }
     const def = {
       id,
       name: String(name).slice(0, 24) || randomName(),
@@ -5172,9 +5179,13 @@ function makeGlitchItem(a){
       desc: String(desc || "一个来历不明的道具。").slice(0, 120) + (detail ? `（${detail}）` : ""),
       icon: String(icon || randomIcon()).slice(0, 8),
       mods: mods || {},
-      hooks: spec ? (Object.keys(compileAiSpec(spec)).length ? compileAiSpec(spec) : buildAiHooks([spec])) : {},
+      hooks,
       hidden: true,            // 不进图鉴、不参与掉落/打乱，只在本局存在
     };
+    if (mode === "active" || mode === "oneshot"){
+      def.kind = mode === "oneshot" ? "oneshot" : undefined;
+      def.use = () => true;      // 效果由 onUse 钩子负责
+    }
     ITEMS.push(def);
     ITEM_BY_ID.set(id, def);
     (S.glitchIds = S.glitchIds || []).push(id);
@@ -5376,10 +5387,12 @@ function useItem(uid){
   try { ok = it.def.use(a, it); } catch(e){ console.error(e); ok = false; }
   hideTip();                 // 触屏没有 mouseleave，用完主动把提示收起来
   if (ok === false) return;
-  // AI 强化的「主动效果」：使用时触发
+  // AI 强化的「主动效果」：使用时触发（实例上的 + 定义里的）
   try {
-    const ah = it.aiHooks && it.aiHooks.onUse;
-    if (typeof ah === "function") ah({}, api(it, stats()));
+    const a1 = it.aiHooks && it.aiHooks.onUse;
+    if (typeof a1 === "function") a1({}, api(it, stats()));
+    const a2 = it.def.hooks && it.def.hooks.onUse;
+    if (typeof a2 === "function") a2({}, api(it, stats()));
   } catch(e){}
   if (it.def.kind === "oneshot") destroyItem(it.uid);
   afterStateChange();
@@ -5839,6 +5852,7 @@ const CHANGELOG = [
       "AI 强化不再总是「受伤回血」：每次随机指定不同的触发时机与效果类型",
       "AI 不再生成「免疫」相关的效果",
       "AI 设置新增「描述风格」开关：具体写效果（默认，会写明时机/概率/数值）或文艺一点",
+      "修复：错误技生成的主动/一次性道具点不了（现在会带上可用的使用入口）",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
