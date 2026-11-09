@@ -4828,6 +4828,29 @@ function buildAiHooks(specs){
 }
 
 /* 把脚本挂到道具实例 / 卡牌实例上（可叠加） */
+/* 本次强化要用哪个触发器：优先挑目标还没用过的，避免每次都「受伤回血」 */
+const BOOST_THEMES = [
+  { on:"onKill",          hint:"击杀敌人时" },
+  { on:"onBattleStart",   hint:"战斗开始时" },
+  { on:"onAfterHit",      hint:"攻击命中后" },
+  { on:"onNodeEnd",       hint:"通过节点时" },
+  { on:"onGoldGain",      hint:"获得金币时" },
+  { on:"onRoundStart",    hint:"每回合开始时" },
+  { on:"onAttackWindup",  hint:"攻击前" },
+  { on:"onHurt",          hint:"受到伤害时" },
+  { on:"onVictory",       hint:"通关时" },
+  { on:"onConsume",       hint:"消耗道具时" },
+];
+function pickBoostTheme(target){
+  const used = new Set();
+  for (const sp of (target && target.aiScripts) || []){
+    for (const tr of (sp.triggers || [])) used.add(tr.on);
+  }
+  const pool = BOOST_THEMES.filter(t => !used.has(t.on));
+  const list = pool.length ? pool : BOOST_THEMES;
+  return list[ri(0, list.length - 1)];
+}
+
 /* 强化用的清洗：只保留一个触发器、100% 触发、数值一律为正（好效果） */
 function sanitizeBoostSpec(spec){
   const tr = (spec && spec.triggers && spec.triggers[0]) || null;
@@ -4891,10 +4914,10 @@ function aiScriptPrompt(){
 /* ---------------- AI：火堆强化 / 错误技 ---------------- */
 
 const AI_MOD_KEYS = ["addDmg","reduceDmg","boostDmg","hpMax","luck","minDmg","maxDmg",
-                     "attackCount","heal","immunity","goldCap","goldBonus","mult"];
+                     "attackCount","heal","goldCap","goldBonus","mult"];
 const AI_MOD_DESC = { addDmg:"加伤", reduceDmg:"减伤", boostDmg:"增伤", hpMax:"血量上限",
   luck:"幸运", minDmg:"最小伤害", maxDmg:"最大伤害", attackCount:"攻击次数", heal:"回复量",
-  immunity:"免疫", goldCap:"金币上限", goldBonus:"击杀金币", mult:"伤害倍率" };
+  goldCap:"金币上限", goldBonus:"击杀金币", mult:"伤害倍率" };
 
 /* 火堆的「强化（AI）」：先选一个目标，再让 AI 生成强化 */
 function openAiBoostPicker(done){
@@ -4930,15 +4953,21 @@ function openAiBoostPicker(done){
       <div class="msub">稍等片刻。</div>`);
 
     const isActive = isItem && !!target.def.use;
-    const forceOn = isActive ? "onUse" : "onKill";
+    const theme = isActive ? { on:"onUse", hint:"使用它时" } : pickBoostTheme(target);
+    const forceOn = theme.on;
+    const usedDesc = ((target.aiDescs || []).join("；") || "（无）");
     const sys = "你是卡牌游戏的设计助手。为一个已有的道具/塔罗牌生成**一个**正面机制"
       + "（100% 触发、只带来好处）。"
       + (isActive ? "注意：这个道具是主动使用的，机制必须在**使用它的时候**触发，on 必须是 \"onUse\"。"
                   : "可以选择合适的触发时机。")
+      + "本次必须使用触发器 on=\"" + forceOn + "\"（即" + theme.hint + "触发）。"
+      + "不能和已有的强化重复，也不要总是写「回血」，请在金币、抽牌、追击伤害、获得道具、临时属性之间随机挑一种，"
+      + "并尽量组合出少见的效果。"
       + "只输出 JSON：{\"desc\":\"一句话描述\",\"triggers\":[{\"on\":\"" + forceOn + "\",\"ops\":[{\"op\":\"gold\",\"v\":2}]}]}。"
       + "on 只能从 " + AI_TRIGGERS.join("、") + "；op 只能从 " + AI_OP_DESC + "；只给 1 个触发器、最多 2 个操作、数值 1~5，必须为正。";
-    const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${curBoost}\n`
-      + `请设计一个【和现有效果不同、有记忆点】的额外机制（比如击杀时、受伤时、过关时触发的组合效果）。`;
+    const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${usedDesc}\n`
+      + `请设计一个【和现有效果、已有强化都不同】的机制，必须由「${theme.hint}」触发。`
+      + `随机数种子：${Math.floor(Math.random() * 100000)}（用它来保证这次效果和以往不一样）。`;
 
     aiAsk(sys, user, (txt, err) => {
       const j = aiParseJSON(txt);
@@ -4946,7 +4975,9 @@ function openAiBoostPicker(done){
       closeModal();
       if (!spec){
         if (err) log(`✨ AI 调用失败：${err}（已用本地兜底效果）`, "sys");
-        const fb = randomAiScript();
+        const used = new Set(((target.aiDescs) || []));
+        const opts = AI_FALLBACK_SCRIPTS.filter(f => !used.has(f.desc));
+        const fb = (opts.length ? opts : AI_FALLBACK_SCRIPTS)[ri(0, (opts.length ? opts : AI_FALLBACK_SCRIPTS).length - 1)];
         attachAiScript(target, fb, fb.desc, true);
         log(`✨ AI 强化「${name}」（本地兜底）：${fb.desc}`, "good");
         if (done) done();
@@ -4993,12 +5024,12 @@ function makeGlitchItem(a){
   const GOOD = [
     ["addDmg", 1, 3], ["reduceDmg", 1, 2], ["boostDmg", 1, 3], ["hpMax", 4, 10],
     ["luck", 1, 3], ["minDmg", 1, 2], ["maxDmg", 1, 3], ["attackCount", 1, 1],
-    ["heal", 1, 3], ["immunity", 3, 8], ["goldCap", 10, 30], ["goldBonus", 1, 3],
+    ["heal", 1, 3], ["goldCap", 10, 30], ["goldBonus", 1, 3],
   ];
   const BAD = [
     ["addDmg", -3, -1], ["reduceDmg", -2, -1], ["hpMax", -10, -4], ["luck", -3, -1],
     ["minDmg", -2, -1], ["maxDmg", -3, -1], ["heal", -2, -1], ["goldCap", -30, -10],
-    ["goldBonus", -3, -1], ["immunity", -8, -3],
+    ["goldBonus", -3, -1],
   ];
   const randomIcon = () => {
     const icons = ["🐛","🌀","💠","❔","🧩","🔮","☄️","🕳️","👾","🔻","✳️","♻️"];
@@ -5701,6 +5732,8 @@ const CHANGELOG = [
       "火堆强化会直接替换道具的描述，名字后面加上「+」（强化几次就几个 +）",
       "主动/一次性道具的强化效果也是在使用时触发（不会变成被动）",
       "新道具「灼热升级」#459：之后的强化改为叠加，多个效果与描述同时存在",
+      "AI 强化不再总是「受伤回血」：每次随机指定不同的触发时机与效果类型",
+      "AI 不再生成「免疫」相关的效果",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
