@@ -2139,10 +2139,16 @@ function cardFakeItem(d){ return { uid: -1000, def: { name: "卡牌·" + (d ? d.
    ============================================================ */
 function aiCfg(){
   const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch(e){ return d; } };
+  let model = get("rk4_ai_model", "deepseek-flash") || "deepseek-flash";
+  // 旧版本写进去的错误默认值，自动纠正
+  if (model === "deepseek-v4.1-flash"){
+    model = "deepseek-flash";
+    try { localStorage.setItem("rk4_ai_model", model); } catch(e){}
+  }
   return {
     key: (get("rk4_ai_key", "") || "").trim(),
     base: (get("rk4_ai_base", "https://api.deepseek.com/v1") || "").replace(/\/+$/, ""),
-    model: get("rk4_ai_model", "deepseek-v4.1-flash") || "deepseek-v4.1-flash",
+    model,
   };
 }
 function aiReady(){ return !!aiCfg().key; }
@@ -2162,7 +2168,7 @@ function openAISettings(){
         <li>复制生成的 <b>sk-</b> 开头字符串（只显示一次，记得先存好）</li>
         <li>把它粘贴到下面的输入框，点「保存」即可</li>
       </ol>
-      <div class="ai-guide-tip">接口地址与模型一般不用改，默认已填好 DeepSeek 的地址与 deepseek-v4.1-flash。</div>
+      <div class="ai-guide-tip">接口地址与模型一般不用改，默认已填好 DeepSeek 的地址与 deepseek-flash。</div>
     </div>
 
     <input id="ai-key" class="codex-search" style="width:100%;margin-top:8px" placeholder="sk-..." value="${esc(c.key)}">
@@ -2185,7 +2191,7 @@ function openAISettings(){
     try {
       localStorage.setItem("rk4_ai_key", k.trim());
       localStorage.setItem("rk4_ai_base", ((div.querySelector("#ai-base") || {}).value || "").trim() || "https://api.deepseek.com/v1");
-      localStorage.setItem("rk4_ai_model", ((div.querySelector("#ai-model") || {}).value || "").trim() || "deepseek-v4.1-flash");
+      localStorage.setItem("rk4_ai_model", ((div.querySelector("#ai-model") || {}).value || "").trim() || "deepseek-flash");
     } catch(e){}
     say("正在测试…", true);
     aiAsk("你是一个测试助手。", "回复两个字：可用", (txt, err) => {
@@ -2202,7 +2208,7 @@ function openAISettings(){
     try {
       localStorage.setItem("rk4_ai_key", k.trim());
       localStorage.setItem("rk4_ai_base", b.trim() || "https://api.deepseek.com/v1");
-      localStorage.setItem("rk4_ai_model", m.trim() || "deepseek-v4.1-flash");
+      localStorage.setItem("rk4_ai_model", m.trim() || "deepseek-flash");
     } catch(e){}
     const saved = (localStorage.getItem("rk4_ai_key") || "");
     const masked = saved ? saved.slice(0, 5) + "…" + saved.slice(-4) : "（空）";
@@ -5637,6 +5643,7 @@ const CHANGELOG = [
       "属性详情面板里单独列出「塔罗牌」的加成",
       "火堆「强化（AI）」与「错误技」改为 AI 生成机制型效果（击杀/受伤/过关触发的组合），不再只是加属性",
       "AI 设置新增「测试连接」：能看到 HTTP 状态码 / 网络错误，方便排查 Key 或跨域问题",
+      "默认模型名更正为 deepseek-flash（旧版本填错的会自动纠正）",
       "AI 调用失败时会在日志里说明原因，并自动改用本地效果",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
@@ -5645,7 +5652,7 @@ const CHANGELOG = [
       "新道具「帐篷」#456：火堆可以连续选择多个选项，每个选项只能用一次",
       "新道具「火神开道」#457：地图上花 3 金币，把下一个非战斗节点变成火堆",
       "新道具「错误技」#458：一次性，获得一个 AI 生成的随机道具（3 个随机效果）",
-      "标题页菜单新增「🤖 AI 设置」：可填写 API Key / 接口地址 / 模型（默认 DeepSeek · deepseek-v4.1-flash）",
+      "标题页菜单新增「🤖 AI 设置」：可填写 API Key / 接口地址 / 模型（默认 DeepSeek · deepseek-flash）",
       "AI 设置里加了获取 Key 的图文指引（去 DeepSeek 开放平台注册、充值、创建 API Key）",
     ],
   },
