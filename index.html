@@ -81,6 +81,11 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.ai-guide{margin-top:10px;padding:10px 12px;border:1px solid #2f2745;border-radius:10px;background:#171223}
+.ai-guide-title{font-size:12px;letter-spacing:.12em;color:var(--gold);margin-bottom:6px}
+.ai-guide ol{margin:0;padding-left:18px;color:#b9b0c8;font-size:12px;line-height:1.9}
+.ai-guide a{color:#7fb6e8;text-decoration:none;border-bottom:1px dashed #4a6d8a}
+.ai-guide-tip{margin-top:8px;font-size:11px;color:#6f6786;line-height:1.6}
 .tarot-strip{display:flex;align-items:center;gap:6px;justify-content:center;flex-wrap:wrap;
   margin-top:10px;padding:6px 10px;border-radius:999px;background:#1a1527;border:1px solid #2f2745;cursor:pointer}
 .tarot-strip .ts-label{font-size:11px;letter-spacing:.16em;color:var(--gold-dim)}
@@ -2146,7 +2151,21 @@ function aiReady(){ return !!aiCfg().key; }
 function openAISettings(){
   const c = aiCfg();
   const div = modalShell(`<h3>AI 设置</h3>
-    <div class="msub">填写 OpenAI 兼容接口的 Key（保存在本机，不会上传）。不填则 AI 相关功能不可用。</div>
+    <div class="msub">填写 API Key（只保存在本机浏览器里，不会上传到任何服务器）。不填则 AI 相关功能不可用。</div>
+
+    <div class="ai-guide">
+      <div class="ai-guide-title">怎么获取 API Key（DeepSeek）</div>
+      <ol>
+        <li>打开 DeepSeek 开放平台：<a href="https://platform.deepseek.com/" target="_blank" rel="noopener">platform.deepseek.com</a></li>
+        <li>注册 / 登录账号（手机号或邮箱）</li>
+        <li>在左侧「充值」里充值余额 —— API 按量计费，充一点就够玩很久</li>
+        <li>进入左侧「<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">API Keys</a>」→ 点「创建 API Key」</li>
+        <li>复制生成的 <b>sk-</b> 开头字符串（只显示一次，记得先存好）</li>
+        <li>把它粘贴到下面的输入框，点「保存」即可</li>
+      </ol>
+      <div class="ai-guide-tip">接口地址与模型一般不用改，默认已填好 DeepSeek 的地址与 deepseek-v4.1-flash。</div>
+    </div>
+
     <input id="ai-key" class="codex-search" style="width:100%;margin-top:8px" placeholder="sk-..." value="${esc(c.key)}">
     <input id="ai-base" class="codex-search" style="width:100%;margin-top:8px" placeholder="接口地址" value="${esc(c.base)}">
     <input id="ai-model" class="codex-search" style="width:100%;margin-top:8px" placeholder="模型名" value="${esc(c.model)}">
@@ -5446,6 +5465,7 @@ const CHANGELOG = [
       "新道具「火神开道」#457：地图上花 3 金币，把下一个非战斗节点变成火堆",
       "新道具「错误技」#458：一次性，获得一个 AI 生成的随机道具（3 个随机效果）",
       "标题页菜单新增「🤖 AI 设置」：可填写 API Key / 接口地址 / 模型（默认 DeepSeek · deepseek-v4.1-flash）",
+      "AI 设置里加了获取 Key 的图文指引（去 DeepSeek 开放平台注册、充值、创建 API Key）",
     ],
   },
   {
