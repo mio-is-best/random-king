@@ -81,6 +81,7 @@ img{-webkit-user-drag:none;user-select:none}
 }
 .hud-gold .v{color:var(--gold)}
 .hud-luck .v{color:var(--violet)}
+.ai-status{margin-top:10px;font-size:12px;line-height:1.6;min-height:16px;word-break:break-all}
 .ai-guide{margin-top:10px;padding:10px 12px;border:1px solid #2f2745;border-radius:10px;background:#171223}
 .ai-guide-title{font-size:12px;letter-spacing:.12em;color:var(--gold);margin-bottom:6px}
 .ai-guide ol{margin:0;padding-left:18px;color:#b9b0c8;font-size:12px;line-height:1.9}
@@ -2167,8 +2168,32 @@ function openAISettings(){
     <input id="ai-key" class="codex-search" style="width:100%;margin-top:8px" placeholder="sk-..." value="${esc(c.key)}">
     <input id="ai-base" class="codex-search" style="width:100%;margin-top:8px" placeholder="接口地址" value="${esc(c.base)}">
     <input id="ai-model" class="codex-search" style="width:100%;margin-top:8px" placeholder="模型名" value="${esc(c.model)}">
+    <div id="ai-status" class="ai-status"></div>
     <div class="modal-close"><button class="btn sm" id="ai-save">保 存</button>
+      <button class="btn ghost sm" id="ai-test">测 试 连 接</button>
       <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
+  const status = div.querySelector("#ai-status");
+  const say = (t, ok) => {
+    if (!status) return;
+    status.innerHTML = `<span style="color:${ok ? "#7fdcaa" : "#e07a7a"}">${esc(t)}</span>`;
+  };
+
+  const test = div.querySelector("#ai-test");
+  if (test) test.onclick = () => {
+    const k = (div.querySelector("#ai-key") || {}).value || "";
+    if (!k.trim()){ say("请先填写 API Key", false); return; }
+    try {
+      localStorage.setItem("rk4_ai_key", k.trim());
+      localStorage.setItem("rk4_ai_base", ((div.querySelector("#ai-base") || {}).value || "").trim() || "https://api.deepseek.com/v1");
+      localStorage.setItem("rk4_ai_model", ((div.querySelector("#ai-model") || {}).value || "").trim() || "deepseek-v4.1-flash");
+    } catch(e){}
+    say("正在测试…", true);
+    aiAsk("你是一个测试助手。", "回复两个字：可用", (txt, err) => {
+      if (txt) say("连接成功！返回：" + txt.slice(0, 40), true);
+      else say("连接失败：" + (err || "未知错误"), false);
+    });
+  };
+
   const save = div.querySelector("#ai-save");
   if (save) save.onclick = () => {
     const k = (div.querySelector("#ai-key") || {}).value || "";
@@ -2179,7 +2204,9 @@ function openAISettings(){
       localStorage.setItem("rk4_ai_base", b.trim() || "https://api.deepseek.com/v1");
       localStorage.setItem("rk4_ai_model", m.trim() || "deepseek-v4.1-flash");
     } catch(e){}
-    closeModal();
+    const saved = (localStorage.getItem("rk4_ai_key") || "");
+    const masked = saved ? saved.slice(0, 5) + "…" + saved.slice(-4) : "（空）";
+    say(`已保存：${masked}`, true);
     renderMenuSafe();
   };
 }
@@ -2190,6 +2217,9 @@ function renderMenuSafe(){ try { if (S.screen === "title") renderTitle(); } catc
 function aiAsk(system, user, cb){
   const c = aiCfg();
   if (!c.key){ cb(null, "没有填写 API Key"); return; }
+  let done = false;
+  const finish = (t, e) => { if (!done){ done = true; cb(t, e); } };
+  const timer = setTimeout(() => finish(null, "请求超时（30 秒）"), 30000);
   fetch(c.base + "/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + c.key },
@@ -2201,10 +2231,21 @@ function aiAsk(system, user, cb){
         { role: "user", content: user },
       ],
     }),
-  }).then(r => r.json()).then(j => {
+  }).then(async (r) => {
+    const raw = await r.text();
+    if (!r.ok){
+      let msg = raw.slice(0, 300);
+      try { const j2 = JSON.parse(raw); msg = (j2.error && (j2.error.message || j2.error.code)) || msg; } catch(e){}
+      finish(null, `HTTP ${r.status}：${msg}`);
+      return;
+    }
+    let j = null;
+    try { j = JSON.parse(raw); } catch(e){}
     const txt = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-    cb(txt || null, txt ? null : "AI 没有返回内容");
-  }).catch(e => cb(null, e.message));
+    finish(txt || null, txt ? null : ("返回内容异常：" + raw.slice(0, 200)));
+  }).catch(e => {
+    finish(null, "网络请求失败：" + e.message + "（可能是接口不支持浏览器跨域/网络被拦）");
+  }).finally(() => clearTimeout(timer));
 }
 
 function aiParseJSON(text){
@@ -4855,6 +4896,7 @@ function openAiBoostPicker(done){
       const spec = (j && Array.isArray(j.triggers) && j.triggers.length) ? j : null;
       closeModal();
       if (!spec){
+        if (err) log(`✨ AI 调用失败：${err}（已用本地兜底效果）`, "sys");
         const fb = randomAiScript();
         attachAiScript(target, fb, fb.desc);
         log(`✨ AI 强化「${name}」（本地兜底）：${fb.desc}`, "good");
@@ -4969,6 +5011,7 @@ function makeGlitchItem(a){
   aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
+    if (err) log(`🐛 AI 调用失败：${err}（已用本地效果）`, "sys");
     const spec = (j && Array.isArray(j.triggers) && j.triggers.length) ? j : randomAiScript();
     // 名字一律真随机，不用 AI 给的
     spawn(randomName(), randomIcon(), (j && j.desc) || spec.desc, {}, spec);
@@ -5593,6 +5636,8 @@ const CHANGELOG = [
       "结算界面会显示本局获得的塔罗牌",
       "属性详情面板里单独列出「塔罗牌」的加成",
       "火堆「强化（AI）」与「错误技」改为 AI 生成机制型效果（击杀/受伤/过关触发的组合），不再只是加属性",
+      "AI 设置新增「测试连接」：能看到 HTTP 状态码 / 网络错误，方便排查 Key 或跨域问题",
+      "AI 调用失败时会在日志里说明原因，并自动改用本地效果",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
