@@ -872,12 +872,18 @@ function stats(){
     }
   };
   apply(S.perm);
-  for (const it of S.items){ if (it.spent) continue; apply(it.mods || it.def.mods); if (it.dyn) it.dyn(st); }
+  for (const it of S.items){
+    if (it.spent) continue;
+    apply(it.mods || it.def.mods);
+    if (it.aiMods) apply(it.aiMods);      // AI 强化
+    if (it.dyn) it.dyn(st);
+  }
   // 塔罗卡牌
   for (const c of (S.cards || [])){
     const side = cardSide(c.key, c.rev);
     if (!side) continue;
     if (side.mods) apply(side.mods);
+    if (c.aiMods) apply(c.aiMods);        // AI 强化
     if (typeof side.dyn === "function") side.dyn(st);
   }
   if (S.goldenChild > 0) st.addDmg += 8;        // 金嗓子：之后两关伤害 +8
@@ -1776,7 +1782,27 @@ for (const d of ABILITY_ITEMS) ITEMS.push(d);
 const EXTRA_ITEMS = [
   D(-30,"合同",2,"功能类","本局内，道具库里编号 1~28 的道具会变成对应编号的角色的能力（等级跟随原道具）。",{icon:"📜",draw:false}),
 
-  D(455,"占卜",2,"功能类","火堆多一个选项：获得一张随机塔罗牌。",{icon:"🔮"}),
+  D(456,"帐篷",2,"功能类","火堆可以选择任意个选项：每选完一个选项不会离开，可以继续选（同一个选项只能选一次）。",{icon:"⛺"}),
+D(457,"火神开道",3,"功能类","主动：只能在地图界面使用，花费 3 金币，把下一个非战斗节点变成火堆。",{icon:"🔥",
+  use:(a)=>{
+    if (S.battle && !S.battle.over){ log("火神开道：只能在地图界面使用。","sys"); return false; }
+    if (!canPay(3)){ log("火神开道：金币不够。","sys"); return false; }
+    const cand = (S.map || []).filter(n => n.row > S.depth && n.type !== "enemy" && !n.boss &&
+      (S.reach || []).length >= 0);
+    // 只改还能走到的后续节点
+    const pool = (S.map || []).filter(n => n.type !== "enemy" && !n.boss &&
+      (S.mapDone || []).indexOf(n.id) < 0 && n.id !== S.nodeIdx);
+    if (!pool.length){ log("火神开道：没有可以改造的节点了。","sys"); return false; }
+    pool.sort((x, y) => x.row - y.row);
+    const target = pool[0];
+    spendGold(3);
+    target.type = "campfire";
+    log(`🔥 火神开道：第 ${target.row + 1} 行的一个节点变成了火堆。`, "good");
+    return true;
+  }}),
+D(458,"错误技",0,"功能类","一次性：获得一个完全随机的道具（AI 生成，带 3 个随机效果；没填 API Key 时本地随机生成）。",{icon:"🐛",kind:"oneshot",
+  use:(a)=>{ makeGlitchItem(a); }}),
+D(455,"占卜",2,"功能类","火堆多一个选项：获得一张随机塔罗牌。",{icon:"🔮"}),
 D(-31,"合成宝袋",2,"功能类","获得时：本局道具编号被打乱一次。主动：把收到的道具编号拆成数字存进来，凑 3 位即可合成对应编号的道具。",{icon:"🧰",draw:false,
     hooks:{onAcquire:()=>{ if(!shuffleActive()){ shuffleItemIds(); log("合成宝袋：本局的道具编号被打乱了！","good"); } }},
     use:(a)=>{ openCraftBag(); }}),
@@ -2102,6 +2128,93 @@ function cardName(c){
   return d ? `${d.name}${c.rev ? "（逆位）" : "（正位）"}` : "未知卡牌";
 }
 function cardFakeItem(d){ return { uid: -1000, def: { name: "卡牌·" + (d ? d.name : "") } }; }
+
+
+/* ============================================================
+   AI 相关（需要玩家自行填写 API Key，OpenAI 兼容接口）
+   ============================================================ */
+function aiCfg(){
+  const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch(e){ return d; } };
+  return {
+    key: (get("rk4_ai_key", "") || "").trim(),
+    base: (get("rk4_ai_base", "https://api.openai.com/v1") || "").replace(/\/+$/, ""),
+    model: get("rk4_ai_model", "gpt-4o-mini") || "gpt-4o-mini",
+  };
+}
+function aiReady(){ return !!aiCfg().key; }
+
+function openAISettings(){
+  const c = aiCfg();
+  const div = modalShell(`<h3>AI 设置</h3>
+    <div class="msub">填写 OpenAI 兼容接口的 Key（保存在本机，不会上传）。不填则 AI 相关功能不可用。</div>
+    <input id="ai-key" class="codex-search" style="width:100%;margin-top:8px" placeholder="sk-..." value="${esc(c.key)}">
+    <input id="ai-base" class="codex-search" style="width:100%;margin-top:8px" placeholder="接口地址" value="${esc(c.base)}">
+    <input id="ai-model" class="codex-search" style="width:100%;margin-top:8px" placeholder="模型名" value="${esc(c.model)}">
+    <div class="modal-close"><button class="btn sm" id="ai-save">保 存</button>
+      <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
+  const save = div.querySelector("#ai-save");
+  if (save) save.onclick = () => {
+    const k = (div.querySelector("#ai-key") || {}).value || "";
+    const b = (div.querySelector("#ai-base") || {}).value || "";
+    const m = (div.querySelector("#ai-model") || {}).value || "";
+    try {
+      localStorage.setItem("rk4_ai_key", k.trim());
+      localStorage.setItem("rk4_ai_base", b.trim() || "https://api.openai.com/v1");
+      localStorage.setItem("rk4_ai_model", m.trim() || "gpt-4o-mini");
+    } catch(e){}
+    closeModal();
+    renderMenuSafe();
+  };
+}
+
+function renderMenuSafe(){ try { if (S.screen === "title") renderTitle(); } catch(e){} }
+
+/* 调用 AI，回调 (text|null, err) */
+function aiAsk(system, user, cb){
+  const c = aiCfg();
+  if (!c.key){ cb(null, "没有填写 API Key"); return; }
+  fetch(c.base + "/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + c.key },
+    body: JSON.stringify({
+      model: c.model,
+      temperature: 0.9,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  }).then(r => r.json()).then(j => {
+    const txt = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+    cb(txt || null, txt ? null : "AI 没有返回内容");
+  }).catch(e => cb(null, e.message));
+}
+
+function aiParseJSON(text){
+  if (!text) return null;
+  try {
+    const m = text.match(/\{[\s\S]*\}/);
+    return JSON.parse(m ? m[0] : text);
+  } catch(e){ return null; }
+}
+
+/* 把 AI 给的数值加成合并到目标上（道具实例或卡牌实例） */
+function applyAiBoost(target, mods, desc){
+  if (!target) return;
+  target.aiMods = target.aiMods || {};
+  if (mods && typeof mods === "object"){
+    for (const k of Object.keys(mods)){
+      const v = Number(mods[k]);
+      if (!isFinite(v) || v === 0) continue;
+      if (k === "mult" || k === "enemyMult" || k === "healMult"){
+        target.aiMods[k] = (target.aiMods[k] ?? 1) * v;
+      } else {
+        target.aiMods[k] = (target.aiMods[k] || 0) + v;
+      }
+    }
+  }
+  if (desc) target.aiDesc = String(desc).slice(0, 120);
+}
 
 /* ---------------- 日志 ---------------- */
 /* 日志框滚到最新一条（重绘后的新节点要等一帧才有正确高度） */
@@ -3850,8 +3963,20 @@ function openStatDetail(key){
   const rest = isMult ? (acc ? Math.round((total / acc) * 100) / 100 : 1) : Math.round(total - acc);
   const restIsNone = isMult ? Math.abs(rest - 1) < 0.001 : rest === 0;
 
-  const groupName = { base:"基础", item:"道具属性", grow:"永久成长", skill:"技能 / 动态效果" };
-  const order = ["base", "item", "grow", "skill"];
+  // 塔罗牌的加成也单独列出来
+  for (const c of (S.cards || [])){
+    const d = tarotDef(c.key);
+    const side = cardSide(c.key, c.rev);
+    if (!d || !side || !side.mods) continue;
+    const v = side.mods[key];
+    if (v == null) continue;
+    if (isMult ? Math.abs(v - 1) < 0.001 : !v) continue;
+    rows.push({ name: `🔮 ${d.name}${c.rev ? "（逆位）" : "（正位）"}`, v, mark: isMult ? "×" : "", group: "card" });
+    acc = isMult ? acc * v : acc + v;
+  }
+
+  const groupName = { base:"基础", item:"道具属性", card:"塔罗牌", grow:"永久成长", skill:"技能 / 动态效果" };
+  const order = ["base", "item", "card", "grow", "skill"];
   const rowsHTML = order.map(g => {
     const list = rows.filter(r => r.group === g);
     if (!list.length) return "";
@@ -3974,6 +4099,7 @@ function openMenu(){
       <button class="btn block" onclick="closeModal()">继 续 游 戏</button>
 
       <button class="btn ghost block" onclick="openTarotList()">🔮 塔 罗 牌（${(S.cards||[]).length}/22）</button>
+      <button class="btn ghost block" onclick="openAISettings()">🤖 AI 设置（${aiReady() ? "已填写" : "未填写"}）</button>
       <button class="btn ghost block" onclick="openCodex()">道 具 图 鉴</button>
       <button class="btn ghost block" onclick="openAchievements()">成 就（${Object.keys(achStore()).length}/${ACHIEVEMENTS.length}）</button>
       <button class="btn blood block" onclick="quitToTitle()">退 出 游 戏</button>
@@ -4579,25 +4705,197 @@ function drawRandomCards(n){
   return got;
 }
 
+
+/* ---------------- AI：火堆强化 / 错误技 ---------------- */
+
+const AI_MOD_KEYS = ["addDmg","reduceDmg","boostDmg","hpMax","luck","minDmg","maxDmg",
+                     "attackCount","heal","immunity","goldCap","goldBonus","mult"];
+const AI_MOD_DESC = { addDmg:"加伤", reduceDmg:"减伤", boostDmg:"增伤", hpMax:"血量上限",
+  luck:"幸运", minDmg:"最小伤害", maxDmg:"最大伤害", attackCount:"攻击次数", heal:"回复量",
+  immunity:"免疫", goldCap:"金币上限", goldBonus:"击杀金币", mult:"伤害倍率" };
+
+/* 火堆的「强化（AI）」：先选一个目标，再让 AI 生成强化 */
+function openAiBoostPicker(done){
+  const items = (S.items || []).filter(i => !i.spent);
+  const cards = (S.cards || []);
+  if (!items.length && !cards.length){
+    log("✨ 没有可以强化的道具或卡牌。", "sys");
+    if (done) done();
+    return;
+  }
+  const rows = [];
+  items.forEach((it, i) => rows.push(
+    `<button class="btn ghost block" style="margin-top:6px;text-align:left" data-kind="item" data-idx="${i}">
+      ${it.def.icon} ${esc(itName(it))}<span style="color:var(--dim);font-size:11px"> · 道具</span></button>`));
+  cards.forEach((c, i) => { const d = tarotDef(c.key); rows.push(
+    `<button class="btn ghost block" style="margin-top:6px;text-align:left" data-kind="card" data-idx="${i}">
+      ${d.ico} ${esc(d.name)}${c.rev ? "（逆位）" : "（正位）"}<span style="color:var(--dim);font-size:11px"> · 塔罗牌</span></button>`); });
+
+  const div = modalShell(`<h3>✨ 强化（AI）</h3>
+    <div class="msub">选择一个目标，AI 会现场生成一段强化效果写进它里面（可重复强化）。</div>
+    <div style="max-height:46vh;overflow:auto">${rows.join("")}</div>
+    <div class="modal-close"><button class="btn ghost sm" id="ai-cancel">取 消</button></div>`);
+
+  const run = (kind, idx) => {
+    const isItem = kind === "item";
+    const target = isItem ? items[idx] : cards[idx];
+    const name = isItem ? itName(target) : (tarotDef(target.key).name + (target.rev ? "（逆位）" : "（正位）"));
+    const curDesc = isItem ? itDesc(target) : cardSide(target.key, target.rev).desc;
+    const curBoost = target.aiDesc || "（还没有强化过）";
+
+    closeModal();
+    modalShell(`<h3>✨ AI 正在强化「${esc(name)}」…</h3>
+      <div class="msub">稍等片刻。</div>`);
+
+    const sys = "你是一个卡牌游戏的设计助手。你要为一个已有的道具/塔罗牌生成更强的效果。"
+      + "只输出 JSON，不要任何解释。格式：{\"desc\":\"一句话效果描述\",\"mods\":{\"addDmg\":2}}。"
+      + "mods 的 key 只能从这些里选：" + AI_MOD_KEYS.join("、") + "。数值必须是小幅提升（1~5），mult 用 1.1~1.5。";
+    const user = `目标：${name}\n当前效果：${curDesc}\n之前获得过的 AI 强化：${curBoost}\n`
+      + `请给出一次【在现有基础上继续变强】的强化，写出新的效果描述和数值加成。`;
+
+    aiAsk(sys, user, (txt, err) => {
+      const j = aiParseJSON(txt);
+      if (!j || !j.desc){
+        closeModal();
+        log(`✨ AI 强化失败：${err || "返回格式不对"}`, "sys");
+        if (done) done();
+        return;
+      }
+      applyAiBoost(target, j.mods || {}, j.desc);
+      closeModal();
+      log(`✨ AI 强化了「${name}」：${j.desc}`, "good");
+      if (done) done();
+    });
+  };
+
+  div.querySelectorAll("[data-kind]").forEach(btn => {
+    btn.onclick = () => run(btn.dataset.kind, Number(btn.dataset.idx));
+  });
+  const cancel = div.querySelector("#ai-cancel");
+  if (cancel) cancel.onclick = () => { closeModal(); if (done) done(); };
+}
+
+/* 错误技：让 AI 现场造一个随机道具（没有 Key 就在本地随机造） */
+function makeGlitchItem(a){
+  const randomName = () => {
+    const pool = "错乱畸变故障乱码幽灵扭曲残响坍缩";
+    let n = "";
+    const len = 2 + ri(0, 2);
+    for (let i = 0; i < len; i++) n += pool[ri(0, pool.length - 1)];
+    return n;
+  };
+  const randomIcon = () => {
+    const icons = ["🐛","🌀","💠","❔","🧩","🔮","☄️","🕳️","👾","🔻"];
+    return icons[ri(0, icons.length - 1)] + icons[ri(0, icons.length - 1)];
+  };
+  const randomMods = (n) => {
+    const out = {};
+    const keys = AI_MOD_KEYS.filter(k => k !== "mult");
+    for (let i = 0; i < n; i++){
+      const k = keys[ri(0, keys.length - 1)];
+      out[k] = (out[k] || 0) + ri(1, 3);
+    }
+    if (rnd() < 0.3) out.mult = Math.round((1.1 + rnd() * 0.4) * 10) / 10;
+    return out;
+  };
+  const spawn = (name, icon, desc, mods) => {
+    S._glitchSeq = (S._glitchSeq || 0) + 1;
+    const id = 900 + S._glitchSeq;
+    const def = { id, name: String(name).slice(0, 12) || randomName(), grade: 1, type: "功能类",
+                  desc: String(desc || "一个来历不明的道具。").slice(0, 120), icon: String(icon || randomIcon()).slice(0, 4), mods };
+    ITEMS.push(def);
+    ITEM_BY_ID.set(id, def);
+    a.addItem(id);
+    log(`🐛 错误技：获得了「${def.name}」——${def.desc}`, "item");
+  };
+
+  if (!aiReady()){
+    spawn(randomName(), randomIcon(), "三个随机的效果拼在一起。", randomMods(3));
+    return;
+  }
+  modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
+  const sys = "你是卡牌游戏的设计助手。生成一个完全随机、名字是乱码风格的道具。"
+    + "只输出 JSON：{\"name\":\"2-5个字\",\"icon\":\"两个 emoji\",\"desc\":\"一句话描述\",\"mods\":{...}}。"
+    + "mods 的 key 只能从：" + AI_MOD_KEYS.join("、") + " 里选，给 3 个不同的效果。";
+  aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
+    closeModal();
+    const j = aiParseJSON(txt);
+    if (!j || !j.name){ spawn(randomName(), randomIcon(), "三个随机的效果拼在一起。", randomMods(3)); return; }
+    spawn(j.name, j.icon, j.desc, j.mods && typeof j.mods === "object" ? j.mods : randomMods(3));
+  });
+}
+
 function enterCampfire(){
   const heal = Math.max(6, Math.round(maxHp() * 0.35));
-  const opts = [{ name:"休息", desc:`回复 ${heal} 点血量`, icon:"🔥" }];
-  if (ownsDivination()){
-    const n = isSeer() ? 2 : 1;
-    opts.push({ name:"占卜", desc:`获得 ${n} 张随机塔罗牌`, icon:"🔮" });
-  }
-  chooseOne("火堆", "在火堆旁你要做什么？", opts, (o, idx) => {
-    if (idx === 0){
+  const hasTent = S.items.some(i => i.def.id === 456 && !i.spent);
+
+  const build = (used) => {
+    const opts = [{ name:"休息", desc:`回复 ${heal} 点血量`, icon:"🔥", key:"rest" }];
+    if (ownsDivination()){
+      const n = isSeer() ? 2 : 1;
+      opts.push({ name:"占卜", desc:`获得 ${n} 张随机塔罗牌`, icon:"🔮", key:"div" });
+    }
+    if (hasTent) opts.forEach(o => { o.used = used.has(o.key); });
+    return opts;
+  };
+  const used = new Set();
+
+  // 返回 true 表示这个选项自己接管了后续流程（异步）
+  const doOption = (key, done) => {
+    if (key === "rest"){
       healPlayer(heal);
       log(`🔥 你在火堆旁休息，回复了 ${heal} 点血量。`, "good");
-    } else {
+      return false;
+    }
+    if (key === "div"){
       const got = drawRandomCards(isSeer() ? 2 : 1);
       if (got.length) log(`🔮 占卜：获得 ${got.join("、")}。`, "good");
       else log("🔮 占卜：能抽到的牌都已经在你手里了。", "sys");
+      return false;
     }
-    advanceNode();
-    renderAll();
-  });
+    if (key === "ai"){
+      openAiBoostPicker(() => { if (done) done(); });
+      return true;
+    }
+    return false;
+  };
+
+  // 没有帐篷：选一次就结束
+  if (!hasTent){
+    chooseOne("火堆", "在火堆旁你要做什么？", build(used), (o) => {
+      const isAsync = doOption(o.key);
+      if (!isAsync){ advanceNode(); renderAll(); }
+    });
+    return;
+  }
+
+  // 有帐篷：一直留在火堆界面，可以连续选不同选项
+  const render = () => {
+    const opts = build(used);
+    const div = modalShell(`<h3>🔥 火堆（帐篷）</h3>
+      <div class="msub">可以连续选择，每个选项只能用一次。</div>
+      ${opts.map(o => {
+        const dis = o.used ? "disabled" : "";
+        return `<button class="btn ${o.used ? "ghost" : ""} block" style="margin-top:8px;text-align:left" data-opt="${o.key}" ${dis}>
+          ${o.icon} ${esc(o.name)}<span style="color:var(--dim);font-size:11px"> · ${esc(o.desc)}</span>
+        </button>`;
+      }).join("")}
+      <div class="modal-close"><button class="btn sm" id="fire-done">离 开 火 堆</button></div>`);
+    div.querySelectorAll("[data-opt]").forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.opt;
+        if (used.has(key)) return;
+        used.add(key);
+        const isAsync = doOption(key, () => { closeModal(); render(); });
+        if (isAsync) return;
+        closeModal();
+        render();
+      };
+    });
+    const done = div.querySelector("#fire-done");
+    if (done) done.onclick = () => { closeModal(); advanceNode(); renderAll(); };
+  };
+  render();
 }
 
 /* ---------- 道具栏：主动 / 被动 / 一次性 分三排 ---------- */
@@ -5141,6 +5439,13 @@ const CHANGELOG = [
       "修复：不义之财「失去全部金币」会把负债变少（现在只会更少或持平）",
       "新道具「占卜」（#455，2 级）：火堆多一个选项，可以换一张随机塔罗牌",
       "新角色「占卜师」：开局携带占卜，占卜效果翻倍（两张），地图火堆数量翻倍",
+      "结算界面会显示本局获得的塔罗牌",
+      "属性详情面板里单独列出「塔罗牌」的加成",
+      "火堆新增「强化（AI）」：填写 API Key 后可让 AI 现场强化任意道具或塔罗牌（可重复强化）",
+      "新道具「帐篷」#456：火堆可以连续选择多个选项，每个选项只能用一次",
+      "新道具「火神开道」#457：地图上花 3 金币，把下一个非战斗节点变成火堆",
+      "新道具「错误技」#458：一次性，获得一个 AI 生成的随机道具（3 个随机效果）",
+      "菜单新增「AI 设置」，可填写 API Key / 接口地址 / 模型（保存在本机）",
     ],
   },
   {
@@ -5912,6 +6217,17 @@ function victory(){
         <div class="inv-head" style="justify-content:center">最 终 道 具</div>
         ${invHTML()}
       </div>
+      ${(S.cards || []).length ? `<div class="inv-wrap" style="margin-top:14px">
+        <div class="inv-head" style="justify-content:center">塔 罗 牌（${(S.cards || []).length}/22）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center">
+          ${(S.cards || []).map(c => { const d = tarotDef(c.key); const side = cardSide(c.key, c.rev);
+            return `<div class="tarot-card ${c.rev ? "rev" : ""}" style="flex:0 1 140px;cursor:default">
+              <div class="tc-ico">${d.ico}</div>
+              <div class="tc-name">${esc(d.name)}</div>
+              <div class="tc-pos">${c.rev ? "逆 位" : "正 位"}</div>
+              <div class="tc-desc">${esc(side.desc)}</div></div>`; }).join("")}
+        </div>
+      </div>` : ""}
       <div style="margin-top:26px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
         <button class="btn" onclick="backToTitle()">再 来 一 局</button>
         <button class="btn ghost" onclick="openCodex()">道 具 图 鉴</button>
