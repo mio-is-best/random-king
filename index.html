@@ -902,7 +902,10 @@ function stats(){
     st.reduceDmg = 9;
     st.addDmg += over;
   }
-  st.goldCap = Math.max(0, Math.round(st.goldCap));
+  {
+    const gc = Math.round(st.goldCap);
+    st.goldCap = (isNaN(gc) || !isFinite(gc)) ? 100 : Math.max(0, gc);
+  }
   return st;
 }
 
@@ -1353,7 +1356,8 @@ D(27,"拉撒路绷带",1,"功能类","死亡后满血复活（每局一次），
 D(40,"不义之财",1,"经济类","金币 +40；20% 概率失去全部金币。",{icon:"💰",
   hooks:{onAcquire:(c,a)=>{ a.gold(40); if(chance(0.2)){
       const wasNeg = S.gold < 0;
-      S.gold = goldFloor();
+      // 失去全部金币 = 归零（不会凭空造出负债，也不会把债变多）
+      S.gold = 0;
       if (wasNeg) log("路过的小偷帮你把债还完了！","good");
       else log("不义之财：钱全没了。","hurt");
     } }}}),
@@ -5078,6 +5082,7 @@ const CHANGELOG = [
       "地图界面新增「🔮 塔罗」卡牌条，拿到的牌会直接显示在这里，点一下看详情",
       "免疫属性现在有实际效果：受击时按概率完全抵消这次伤害（概率受幸运加成，上限 95%）",
       "地图连线规则改为：66% 只连一边、33% 两边都连、1% 连到同层相邻节点（可横向移动）",
+      "修复：不义之财「失去全部金币」会把负债变少（现在只会更少或持平）",
     ],
   },
   {
