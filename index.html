@@ -2901,31 +2901,64 @@ const ENEMY_HP_HARD = [
 function linkRows(parents, childs, nodes){
   const P = parents.length, C = childs.length;
   const nexts = parents.map(() => []);
-  const addEdge = (i, j) => {
-    const pid = parents[i], cid = childs[j];
+  const addNext = (i, cid) => {
     if (!nexts[i].includes(cid) && nexts[i].length < 2) nexts[i].push(cid);
   };
 
-  // 父 -> 子：每个父节点覆盖它下方的那一段
+  // 距离最近的左右两个孩子
+  const nearChildren = (i) => {
+    const center = (i + 0.5) / P * C - 0.5;
+    let j = Math.round(center);
+    j = Math.max(0, Math.min(C - 1, j));
+    let alt;
+    if (C === 1) alt = j;
+    else if (center >= j) alt = Math.min(C - 1, j + 1);
+    else alt = Math.max(0, j - 1);
+    return [j, alt];
+  };
+
   for (let i = 0; i < P; i++){
-    const j0 = Math.min(C - 1, Math.floor(i * C / P));
-    const j1 = Math.min(C - 1, Math.max(j0, Math.ceil((i + 1) * C / P) - 1));
-    addEdge(i, j0);
-    if (j1 !== j0) addEdge(i, j1);
+    const roll = rnd();
+    if (roll < 0.01 && P > 1){
+      // 1%：不往下一行连，改连同行相邻节点（可以横向移动）
+      const sib = (i === 0) ? 1 : (i === P - 1 ? P - 2 : (rnd() < 0.5 ? i - 1 : i + 1));
+      addNext(i, parents[sib]);
+      continue;
+    }
+    const [a, b] = nearChildren(i);
+    if (roll < 0.67){
+      // 66%：只连一边
+      addNext(i, childs[rnd() < 0.5 ? a : b]);
+    } else {
+      // 33%：两边都连
+      addNext(i, childs[a]);
+      addNext(i, childs[b]);
+    }
   }
-  // 子 -> 父：每个子节点至少被上面一个（通常是两个）父节点连到
+
+  // 兜底 1：每个子节点至少有一个父节点指向它，否则永远走不到
   for (let j = 0; j < C; j++){
-    const i0 = Math.min(P - 1, Math.floor(j * P / C));
-    const i1 = Math.min(P - 1, Math.max(i0, Math.ceil((j + 1) * P / C) - 1));
-    addEdge(i0, j);
-    if (i1 !== i0) addEdge(i1, j);
+    if (nexts.some(list => list.includes(childs[j]))) continue;
+    let best = -1, bestDist = Infinity;
+    for (let i = 0; i < P; i++){
+      if (nexts[i].length >= 2) continue;
+      const d = Math.abs((i + 0.5) / P * C - (j + 0.5));
+      if (d < bestDist){ bestDist = d; best = i; }
+    }
+    if (best >= 0) addNext(best, childs[j]);
   }
-  // 兜底：没有孩子的父节点连到最近的孩子
+
+  // 兜底 2：每个父节点都必须有一条往下的路（同行边不算）
+  const isDown = (pid, cid) => nodes[cid].row > nodes[pid].row;
   for (let i = 0; i < P; i++){
-    if (nexts[i].length) continue;
-    const j = Math.max(0, Math.min(C - 1, Math.round((i + 0.5) / P * C - 0.5)));
-    nexts[i].push(childs[j]);
+    if (nexts[i].some(cid => isDown(parents[i], cid))) continue;
+    if (nexts[i].length >= 2){
+      const k = nexts[i].findIndex(cid => !isDown(parents[i], cid));
+      if (k >= 0) nexts[i].splice(k, 1);
+    }
+    addNext(i, childs[nearChildren(i)[0]]);
   }
+
   parents.forEach((pid, i) => { nodes[pid].next = nexts[i]; });
 }
 
@@ -5044,6 +5077,7 @@ const CHANGELOG = [
       "局内菜单新增「🔮 塔罗牌」可随时查看已拥有的牌与效果",
       "地图界面新增「🔮 塔罗」卡牌条，拿到的牌会直接显示在这里，点一下看详情",
       "免疫属性现在有实际效果：受击时按概率完全抵消这次伤害（概率受幸运加成，上限 95%）",
+      "地图连线规则改为：66% 只连一边、33% 两边都连、1% 连到同层相邻节点（可横向移动）",
     ],
   },
   {
