@@ -4872,9 +4872,33 @@ function sanitizeBoostSpec(spec){
    拥有「灼热升级」(#459) 时改为叠加，且只影响拿到它之后的强化 */
 function attachAiScript(target, spec, desc, replace){
   if (!target || !spec) return;
+  const stack = !!(S.items || []).some(i => i.def.id === 459 && !i.spent);
+  const compiled = compileAiSpec(spec);
+  if (Object.keys(compiled).length){
+    // AI 自由编写的机制
+    const clean = { desc: spec.desc, hooks: spec.hooks };
+    target.aiKind = "code";
+    if (replace && !stack){
+      target.aiScripts = [clean];
+      target.aiHooks = compiled;
+      target.aiDescs = desc ? [String(desc)] : [];
+    } else {
+      target.aiScripts = (target.aiScripts || []).concat([clean]);
+      target.aiHooks = Object.assign({}, target.aiHooks || {});
+      for (const k of Object.keys(compiled)){
+        const prev = target.aiHooks[k];
+        const cur = compiled[k];
+        target.aiHooks[k] = prev ? (ctx, a) => { prev(ctx, a); cur(ctx, a); } : cur;
+      }
+      target.aiDescs = (target.aiDescs || []).concat(desc ? [String(desc)] : []);
+    }
+    target.boostLevel = (target.boostLevel || 0) + 1;
+    target.aiDesc = (target.aiDescs || []).join("；").slice(0, 240);
+    if (typeof afterStateChange === "function") { try { afterStateChange(); } catch(e){} }
+    return;
+  }
   const clean = replace ? sanitizeBoostSpec(spec) : spec;
   if (!clean) return;
-  const stack = !!(S.items || []).some(i => i.def.id === 459 && !i.spent);
   if (replace && !stack){
     target.aiScripts = [clean];
     target.aiDescs = desc ? [String(desc)] : target.aiDescs || [];
@@ -4909,6 +4933,56 @@ function aiScriptPrompt(){
     + 'k 仅在 temp/tempRound/perm 时使用，可选 addDmg/reduceDmg/luck/minDmg/maxDmg/hpMax/attackCount/immunity。'
     + '要求：最多 2 个触发器、每个触发器最多 3 个操作，数值要小（1~5），'
     + '必须是「有创意的机制组合」（例如按概率、按击杀、按受伤、按回合），不要写成单纯的属性加成。';
+}
+
+
+/* ---------------- AI 自由编写效果（沙箱执行） ---------------- */
+const AI_CODE_BANNED = /(while\s*\(|do\s*\{|for\s*\(\s*;|fetch\s*\(|XMLHttpRequest|localStorage|sessionStorage|document\.|window\.|eval\s*\(|new\s+Function|import\s|require\s*\()/;
+
+/* 把 AI 写的 JS 代码编译成一个稳定的函数 */
+function compileAiCode(code){
+  if (typeof code !== "string" || !code.trim()) return null;
+  if (code.length > 900) return null;
+  if (AI_CODE_BANNED.test(code)) return null;
+  try {
+    const fn = new Function("a", "ctx", "S", "chance", "log", "ri", "Math", `"use strict";\n${code}`);
+    return function(ctx, a){
+      try {
+        if (S._aiDepth > 4) return;
+        S._aiDepth = (S._aiDepth || 0) + 1;
+        fn(a, ctx || {}, S, chance, log, ri, Math);
+      } catch(e){
+        try { log("AI 效果执行出错：" + e.message, "sys"); } catch(e2){}
+      } finally {
+        S._aiDepth = Math.max(0, (S._aiDepth || 1) - 1);
+      }
+    };
+  } catch(e){ return null; }
+}
+
+/* AI 返回 {desc, hooks:{onKill:"代码", ...}} -> 可直接用的 hooks 对象 */
+function compileAiSpec(spec){
+  const out = {};
+  const hooks = (spec && spec.hooks) || {};
+  for (const name of Object.keys(hooks)){
+    if (AI_TRIGGERS.indexOf(name) < 0) continue;
+    const fn = compileAiCode(hooks[name]);
+    if (fn) out[name] = fn;
+  }
+  return out;
+}
+
+/* 供 AI 参考的 API 说明 */
+function aiCodePrompt(){
+  return '输出格式：{"desc":"一句话中文描述","hooks":{"触发器":"一段 JS 代码"}}。'
+    + '触发器只能从：' + AI_TRIGGERS.join("、") + '（onUse = 主动道具被使用时触发）。'
+    + '代码里可用：'
+    + 'a.gold(n) 加钱、a.heal(n) 回血、a.hurt(n) 自伤、a.strike(n) 追击伤害、'
+    + 'a.temp(属性, n) 本场临时属性、a.tempRound(属性, n) 本回合属性、a.perm(属性, n) 永久属性、'
+    + 'a.addItem(道具编号) 给道具、drawRandomCards(n) 抽塔罗牌、S（存档对象）、chance(p) 概率判定、ri(a,b) 随机整数、log(文本)。'
+    + '属性名可用 addDmg/reduceDmg/luck/minDmg/maxDmg/hpMax/attackCount/heal/goldCap。'
+    + '限制：不要写 while/for(;;)、不要访问 localStorage/document/fetch，代码不超过 15 行，数值要克制（1~6）。'
+    + '要求：必须是「能改变玩法的新机制」，不要只是加属性、不要总是回血。';
 }
 
 /* ---------------- AI：火堆强化 / 错误技 ---------------- */
@@ -4953,25 +5027,18 @@ function openAiBoostPicker(done){
       <div class="msub">稍等片刻。</div>`);
 
     const isActive = isItem && !!target.def.use;
-    const theme = isActive ? { on:"onUse", hint:"使用它时" } : pickBoostTheme(target);
-    const forceOn = theme.on;
     const usedDesc = ((target.aiDescs || []).join("；") || "（无）");
-    const sys = "你是卡牌游戏的设计助手。为一个已有的道具/塔罗牌生成**一个**正面机制"
-      + "（100% 触发、只带来好处）。"
-      + (isActive ? "注意：这个道具是主动使用的，机制必须在**使用它的时候**触发，on 必须是 \"onUse\"。"
-                  : "可以选择合适的触发时机。")
-      + "本次必须使用触发器 on=\"" + forceOn + "\"（即" + theme.hint + "触发）。"
-      + "不能和已有的强化重复，也不要总是写「回血」，请在金币、抽牌、追击伤害、获得道具、临时属性之间随机挑一种，"
-      + "并尽量组合出少见的效果。"
-      + "只输出 JSON：{\"desc\":\"一句话描述\",\"triggers\":[{\"on\":\"" + forceOn + "\",\"ops\":[{\"op\":\"gold\",\"v\":2}]}]}。"
-      + "on 只能从 " + AI_TRIGGERS.join("、") + "；op 只能从 " + AI_OP_DESC + "；只给 1 个触发器、最多 2 个操作、数值 1~5，必须为正。";
+    const sys = "你是卡牌游戏的设计助手。请自由设计一段新的机制代码，追加到这个道具/塔罗牌上。"
+      + (isActive ? "它属于主动道具，机制请在它被使用时触发（onUse）。" : "")
+      + aiCodePrompt();
     const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${usedDesc}\n`
-      + `请设计一个【和现有效果、已有强化都不同】的机制，必须由「${theme.hint}」触发。`
-      + `随机数种子：${Math.floor(Math.random() * 100000)}（用它来保证这次效果和以往不一样）。`;
+      + `请发挥想象，设计一个【和现有效果、已有强化都不同、有记忆点】的机制，自己决定触发时机。`
+      + `随机种子：${Math.floor(Math.random() * 100000)}（保证这次和以往不一样）。`;
 
     aiAsk(sys, user, (txt, err) => {
       const j = aiParseJSON(txt);
-      const spec = (j && Array.isArray(j.triggers) && j.triggers.length) ? j : null;
+      const hasCode = j && j.hooks && typeof j.hooks === "object" && Object.keys(j.hooks).length;
+      const spec = hasCode ? j : ((j && Array.isArray(j.triggers) && j.triggers.length) ? j : null);
       closeModal();
       if (!spec){
         if (err) log(`✨ AI 调用失败：${err}（已用本地兜底效果）`, "sys");
@@ -5069,7 +5136,7 @@ function makeGlitchItem(a){
       desc: String(desc || "一个来历不明的道具。").slice(0, 120) + (detail ? `（${detail}）` : ""),
       icon: String(icon || randomIcon()).slice(0, 8),
       mods: mods || {},
-      hooks: spec ? buildAiHooks([spec]) : {},
+      hooks: spec ? (Object.keys(compileAiSpec(spec)).length ? compileAiSpec(spec) : buildAiHooks([spec])) : {},
       hidden: true,            // 不进图鉴、不参与掉落/打乱，只在本局存在
     };
     ITEMS.push(def);
@@ -5088,13 +5155,14 @@ function makeGlitchItem(a){
   }
   modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
   const sys = "你是卡牌游戏的设计助手。生成一个机制完全随机、好坏参半的道具，"
-    + "要有创意（例如按概率触发、按击杀/受伤/过关触发的组合），不要只是加属性。"
-    + aiScriptPrompt() + "名字不要给（名字由程序随机生成）。";
+    + "要有创意，好坏都行（可以自伤、可以倒贴钱、也可以很强），不要只是加属性。"
+    + aiCodePrompt() + "名字不要给（名字由程序随机生成）。";
   aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
     if (err) log(`🐛 AI 调用失败：${err}（已用本地效果）`, "sys");
-    const spec = (j && Array.isArray(j.triggers) && j.triggers.length) ? j : randomAiScript();
+    const hasCode = j && j.hooks && typeof j.hooks === "object" && Object.keys(j.hooks).length;
+    const spec = hasCode ? j : ((j && Array.isArray(j.triggers) && j.triggers.length) ? j : randomAiScript());
     // 名字一律真随机，不用 AI 给的
     spawn(randomName(), randomIcon(), (j && j.desc) || spec.desc, {}, spec);
   });
@@ -5722,7 +5790,7 @@ const CHANGELOG = [
       "新角色「占卜师」：开局携带占卜，占卜效果翻倍（两张），地图火堆数量翻倍",
       "结算界面会显示本局获得的塔罗牌",
       "属性详情面板里单独列出「塔罗牌」的加成",
-      "火堆「强化（AI）」与「错误技」改为 AI 生成机制型效果（击杀/受伤/过关触发的组合），不再只是加属性",
+      "火堆「强化（AI）」与「错误技」改为 AI 自由编写效果（可自定义触发时机、条件与随机），不再是固定模板拼装",
       "AI 设置新增「测试连接」：能看到 HTTP 状态码 / 网络错误，方便排查 Key 或跨域问题",
       "默认模型名更正为 deepseek-flash（旧版本填错的会自动纠正）",
       "AI 调用失败时会在日志里说明原因，并自动改用本地效果",
