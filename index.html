@@ -2171,19 +2171,32 @@ function aiDescStyle(){
 function setAiDescStyle(v){
   try { localStorage.setItem("rk4_ai_desc_style", v === "flavor" ? "flavor" : "exact"); } catch(e){}
 }
-/* 自定义提示词：extra 会附加到默认提示词之后；replace 为真时完全替换默认提示词 */
-function aiPromptExtra(){
-  try { return localStorage.getItem("rk4_ai_prompt_extra") || ""; } catch(e){ return ""; }
+/* 完整的提示词覆盖：玩家可以在设置里直接改 system prompt */
+const AI_SYS_KEYS = { boost: "rk4_ai_sys_boost", glitch: "rk4_ai_sys_glitch" };
+function aiSysOverride(kind){
+  try { return (localStorage.getItem(AI_SYS_KEYS[kind] || "") || "").trim(); } catch(e){ return ""; }
 }
-function aiPromptReplace(){
-  try { return localStorage.getItem("rk4_ai_prompt_replace") === "1"; } catch(e){ return false; }
+function setAiSysOverride(kind, text){
+  try {
+    const def = aiSysDefault(kind);
+    if (!text || text.trim() === def.trim()) localStorage.removeItem(AI_SYS_KEYS[kind]);
+    else localStorage.setItem(AI_SYS_KEYS[kind], text);
+  } catch(e){}
 }
-/* 把玩家的附加要求合进默认提示词 */
-function aiPromptWith(base){
-  const extra = aiPromptExtra().trim();
-  if (!extra) return base;
-  if (aiPromptReplace()) return extra;
-  return base + "\n\n【玩家附加要求（优先遵守）】\n" + extra;
+/* 取实际要用的提示词：有覆盖就用覆盖，否则用默认 */
+function aiSysFor(kind, isActive){
+  return aiSysOverride(kind) || aiSysDefault(kind, isActive);
+}
+/* 默认提示词（设置界面里展示/对比用） */
+function aiSysDefault(kind, isActive){
+  if (kind === "glitch"){
+    return "你是卡牌游戏的设计助手。生成一个机制完全随机、好坏参半的道具，"
+      + "要有创意，好坏都行（可以自伤、可以倒贴钱、也可以很强），不要只是加属性。"
+      + aiCodePrompt() + aiDescRule() + "名字不要给（名字由程序随机生成）。";
+  }
+  return "你是卡牌游戏的设计助手。请自由设计一段新的机制代码，追加到这个道具/塔罗牌上。"
+    + (isActive ? "它属于主动道具，机制请在它被使用时触发（onUse）。" : "")
+    + aiCodePrompt() + aiDescRule();
 }
 
 /* 拼给 AI 的描述要求 */
@@ -2227,29 +2240,31 @@ function openAISettings(){
       文艺：只写意境，不写数值。
     </div>
     <div class="ai-prompt-box">
-      <div class="ai-prompt-head">
-        <span>自定义提示词</span>
-        <div style="display:flex;gap:6px">
-          <button class="btn sm ${aiPromptReplace() ? "ghost" : ""}" id="ai-mode-append">追加到默认</button>
-          <button class="btn sm ${aiPromptReplace() ? "" : "ghost"}" id="ai-mode-replace">替换默认</button>
-        </div>
-      </div>
-      <textarea id="ai-extra" class="ai-prompt-input" rows="4"
-        placeholder="例如：效果要有趣、避免直接加属性；优先用战斗内事件；不要生成回血类效果…">${esc(aiPromptExtra())}</textarea>
-      <div class="ai-guide-tip">
-        「追加到默认」：保留默认规则，把你的话加在后面（推荐）<br>
-        「替换默认」：只使用你写的提示词（需要自己写清输出 JSON 格式）
-      </div>
+      <div class="ai-prompt-head"><span>火堆强化 · 提示词</span>
+        <button class="btn ghost sm" data-reset="boost">恢复默认</button></div>
+      <textarea id="ai-sys-boost" class="ai-prompt-input" rows="6">${esc(aiSysFor("boost", false))}</textarea>
+    </div>
+    <div class="ai-prompt-box">
+      <div class="ai-prompt-head"><span>错误技 · 提示词</span>
+        <button class="btn ghost sm" data-reset="glitch">恢复默认</button></div>
+      <textarea id="ai-sys-glitch" class="ai-prompt-input" rows="6">${esc(aiSysFor("glitch"))}</textarea>
+    </div>
+    <div class="ai-guide-tip">
+      上面就是实际发给 AI 的完整提示词，可以随意增删改；点「保存」生效，点「恢复默认」还原。<br>
+      注意：要让 AI 输出 <b>{"desc":"…","hooks":{"onKill":"代码"}}</b> 这种 JSON 格式，删掉格式说明可能导致解析失败而走本地兜底。
     </div>
     <div id="ai-status" class="ai-status"></div>
     <div class="modal-close"><button class="btn sm" id="ai-save">保 存</button>
       <button class="btn ghost sm" id="ai-test">测 试 连 接</button>
       <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
   const reRender = () => { closeModal(); openAISettings(); };
-  const bAppend = div.querySelector("#ai-mode-append");
-  const bReplace = div.querySelector("#ai-mode-replace");
-  if (bAppend) bAppend.onclick = () => { try { localStorage.setItem("rk4_ai_prompt_replace", "0"); } catch(e){} reRender(); };
-  if (bReplace) bReplace.onclick = () => { try { localStorage.setItem("rk4_ai_prompt_replace", "1"); } catch(e){} reRender(); };
+  div.querySelectorAll("[data-reset]").forEach(btn => {
+    btn.onclick = () => {
+      const kind = btn.dataset.reset;
+      try { localStorage.removeItem(AI_SYS_KEYS[kind]); } catch(e){}
+      reRender();
+    };
+  });
 
   const bExact = div.querySelector("#ai-style-exact");
   const bFlavor = div.querySelector("#ai-style-flavor");
@@ -2288,7 +2303,8 @@ function openAISettings(){
       localStorage.setItem("rk4_ai_base", b.trim() || "https://api.deepseek.com/v1");
       localStorage.setItem("rk4_ai_model", m.trim() || "deepseek-flash");
     } catch(e){}
-    try { localStorage.setItem("rk4_ai_prompt_extra", (div.querySelector("#ai-extra") || {}).value || ""); } catch(e){}
+    setAiSysOverride("boost", (div.querySelector("#ai-sys-boost") || {}).value || "");
+    setAiSysOverride("glitch", (div.querySelector("#ai-sys-glitch") || {}).value || "");
     const saved = (localStorage.getItem("rk4_ai_key") || "");
     const masked = saved ? saved.slice(0, 5) + "…" + saved.slice(-4) : "（空）";
     say(`已保存：${masked}`, true);
@@ -5108,14 +5124,12 @@ function openAiBoostPicker(done){
 
     const isActive = isItem && !!target.def.use;
     const usedDesc = ((target.aiDescs || []).join("；") || "（无）");
-    const sys = "你是卡牌游戏的设计助手。请自由设计一段新的机制代码，追加到这个道具/塔罗牌上。"
-      + (isActive ? "它属于主动道具，机制请在它被使用时触发（onUse）。" : "")
-      + aiCodePrompt() + aiDescRule();
+    const sys = aiSysFor("boost", isActive);
     const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${usedDesc}\n`
       + `请发挥想象，设计一个【和现有效果、已有强化都不同、有记忆点】的机制，自己决定触发时机。`
       + `随机种子：${Math.floor(Math.random() * 100000)}（保证这次和以往不一样）。`;
 
-    aiAsk(aiPromptWith(sys), user, (txt, err) => {
+    aiAsk(sys, user, (txt, err) => {
       const j = aiParseJSON(txt);
       const hasCode = j && j.hooks && typeof j.hooks === "object" && Object.keys(j.hooks).length;
       const spec = hasCode ? j : ((j && Array.isArray(j.triggers) && j.triggers.length) ? j : null);
@@ -5243,10 +5257,8 @@ function makeGlitchItem(a){
     return;
   }
   modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
-  const sys = "你是卡牌游戏的设计助手。生成一个机制完全随机、好坏参半的道具，"
-    + "要有创意，好坏都行（可以自伤、可以倒贴钱、也可以很强），不要只是加属性。"
-    + aiCodePrompt() + aiDescRule() + "名字不要给（名字由程序随机生成）。";
-  aiAsk(aiPromptWith(sys), "请生成这样一个道具。", (txt, err) => {
+  const sys = aiSysFor("glitch");
+  aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
     if (err) log(`🐛 AI 调用失败：${err}（已用本地效果）`, "sys");
@@ -5895,7 +5907,7 @@ const CHANGELOG = [
       "AI 不再生成「免疫」相关的效果",
       "AI 设置新增「描述风格」开关：具体写效果（默认，会写明时机/概率/数值）或文艺一点",
       "修复：错误技生成的主动/一次性道具点不了（现在会带上可用的使用入口）",
-      "AI 设置新增「自定义提示词」：可以把你的要求追加到默认提示词后面，或完全替换默认提示词",
+      "AI 设置里直接显示两种功能（火堆强化 / 错误技）的完整提示词，可以任意修改，也能一键恢复默认",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
