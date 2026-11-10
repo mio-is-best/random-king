@@ -3473,6 +3473,7 @@ function newRun(charKey, seed){
     for (let i = ITEMS.length - 1; i >= 0; i--){ if (ITEMS[i].hidden) ITEMS.splice(i, 1); }
         }
   S.glitchIds = [];
+  S.aiVars = {};            // AI 机制的自定义变量（显示在属性栏）
   S.runStart = Date.now();      // 本局开始时间（通关界面显示用时）
   S.drawTool = null;
   S.cAttack = 0; S.cActive = 0; S.cOneshot = 0; S.cDestroy = 0;
@@ -4074,6 +4075,13 @@ function renderHUD(){
   // AI 生成的机制也进属性栏
   const aiList = collectAiEffects();
   if (aiList.length) chips.push(`<span class="tag stat-chip" data-stat="aiEffects" title="点击查看 AI 生成的机制">✨ AI 效果 ${aiList.length}</span>`);
+  // AI 机制自己维护的变量
+  const vars = S.aiVars || {};
+  for (const k of Object.keys(vars)){
+    const v = vars[k];
+    if (v == null || v === 0 || v === "") continue;
+    chips.push(`<span class="tag stat-chip hot" data-stat="aiVar:${esc(k)}" title="AI 机制的变量">${esc(k)} ${typeof v === "number" ? (v > 0 ? "+" + v : v) : esc(String(v))}</span>`);
+  }
 
   $("#hud").innerHTML = `
     <div class="hud-card hud-hp">
@@ -4107,8 +4115,10 @@ function renderHUD(){
     el.style.cursor = "pointer";
     el.onclick = (ev) => {
       ev.stopPropagation();
-      if (el.dataset.stat === "aiEffects") openAiEffectList();
-      else openStatDetail(el.dataset.stat);
+      const st = el.dataset.stat || "";
+      if (st === "aiEffects") openAiEffectList();
+      else if (st.indexOf("aiVar:") === 0) openAiVarDetail(st.slice(6));
+      else openStatDetail(st);
     };
   });
 }
@@ -4153,6 +4163,29 @@ function collectAiEffects(){
     });
   }
   return out;
+}
+
+/* 点 AI 变量：说明它来自哪个机制 */
+function openAiVarDetail(name){
+  const val = aiGet(name);
+  const owners = [];
+  for (const it of (S.items || [])){
+    if (it.aiDesc && String(it.aiDesc).indexOf(name) >= 0) owners.push(itName(it));
+    if (it.aiScripts) for (const sp of it.aiScripts){
+      if (JSON.stringify(sp).indexOf(name) >= 0 && owners.indexOf(itName(it)) < 0) owners.push(itName(it));
+    }
+  }
+  for (const c of (S.cards || [])){
+    if (c.aiDesc && String(c.aiDesc).indexOf(name) >= 0){
+      const d = tarotDef(c.key);
+      if (d) owners.push(d.name + (c.rev ? "（逆位）" : "（正位）"));
+    }
+  }
+  modalShell(`<h3>✨ ${esc(name)}</h3>
+    <div class="msub">当前数值：<b style="color:var(--gold)">${esc(String(val))}</b></div>
+    ${owners.length ? `<div class="modal-row"><div style="flex:1;font-size:13px">来自机制</div>
+      <div class="num" style="font-size:12px">${esc(owners.join("、"))}</div></div>` : ""}
+    <div class="modal-close"><button class="btn sm" onclick="closeModal()">关 闭</button></div>`);
 }
 
 /* 属性栏里点「AI 效果」打开的面板 */
@@ -5029,6 +5062,16 @@ const AI_OPS = {
   perm:  (a, v, k) => a.perm(k || "addDmg", v),
 };
 
+/* AI 自定义变量：会显示在属性栏里 */
+function aiVar(name, value){
+  if (!S.aiVars) S.aiVars = {};
+  const k = String(name || "变量").slice(0, 8);
+  if (value === undefined) return S.aiVars[k];
+  S.aiVars[k] = value;
+  return S.aiVars[k];
+}
+function aiGet(name){ return (S.aiVars || {})[String(name)]; }
+
 /* 把 AI 给的脚本编译成 hooks */
 function buildAiHooks(specs){
   const groups = {};
@@ -5174,12 +5217,12 @@ function compileAiCode(code){
   if (code.length > 900) return null;
   if (AI_CODE_BANNED.test(code)) return null;
   try {
-    const fn = new Function("a", "ctx", "S", "chance", "log", "ri", "Math", `"use strict";\n${code}`);
+    const fn = new Function("a", "ctx", "S", "chance", "log", "ri", "Math", "aiVar", "aiGet", `"use strict";\n${code}`);
     return function(ctx, a){
       try {
         if (S._aiDepth > 4) return;
         S._aiDepth = (S._aiDepth || 0) + 1;
-        fn(a, ctx || {}, S, chance, log, ri, Math);
+        fn(a, ctx || {}, S, chance, log, ri, Math, aiVar, aiGet);
       } catch(e){
         try { log("AI 效果执行出错：" + e.message, "sys"); } catch(e2){}
       } finally {
@@ -5210,6 +5253,8 @@ function aiCodePrompt(){
     + 'a.temp(属性, n) 本场临时属性、a.tempRound(属性, n) 本回合属性、a.perm(属性, n) 永久属性、'
     + 'a.addItem(道具编号) 给道具、drawRandomCards(n) 抽塔罗牌、S（存档对象）、chance(p) 概率判定、ri(a,b) 随机整数、log(文本)。'
     + '属性名可用 addDmg/reduceDmg/luck/minDmg/maxDmg/hpMax/attackCount/heal/goldCap。'
+    + '如果你要记录自定义数值（层数、蓄力、连击…），请用 aiVar("名字", 数值) 写入、aiGet("名字") 读取，'
+      + '这些变量会自动显示在属性栏里；名字控制在 2~4 个字。'
     + '限制：不要写 while/for(;;)、不要访问 localStorage/document/fetch，代码不超过 15 行，数值要克制（1~6）。'
     + '要求：必须是「能改变玩法的新机制」，不要只是加属性、不要总是回血。'
     + '另外请给一个 mode 字段：passive（被动，默认）、active（主动道具，使用时触发 onUse）、oneshot（一次性，使用后消失）。'
@@ -6058,6 +6103,7 @@ const CHANGELOG = [
       "AI 设置里直接显示两种功能（火堆强化 / 错误技）的完整提示词，可以任意修改，也能一键恢复默认",
       "AI 设置新增开关：生成前先弹出输入框，指挥 AI 这次要生成什么（带快捷短语）",
       "AI 生成的新机制也会进入属性栏：状态栏多一个「✨ AI 效果」词条，可查看全部效果；属性详情里也会列出 AI 的数值加成",
+      "AI 机制自己维护的变量（层数 / 蓄力 / 连击…）也会显示在状态栏，点开可看它来自哪个机制",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
