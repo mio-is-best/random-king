@@ -84,6 +84,12 @@ img{-webkit-user-drag:none;user-select:none}
 .ai-style-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
   margin-top:12px;padding:8px 10px;border:1px solid #2f2745;border-radius:10px;background:#171223}
 .ai-style-label{font-size:12px;color:#b9b0c8;letter-spacing:.08em}
+.ai-prompt-box{margin-top:12px;padding:8px 10px;border:1px solid #2f2745;border-radius:10px;background:#171223}
+.ai-prompt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-size:12px;color:#b9b0c8;letter-spacing:.08em;margin-bottom:6px}
+.ai-prompt-input{width:100%;box-sizing:border-box;background:#12101c;border:1px solid #3a3150;border-radius:8px;
+  color:#d8d2e6;font-family:inherit;font-size:12px;line-height:1.6;padding:8px;resize:vertical}
+.ai-prompt-input:focus{outline:none;border-color:var(--gold-dim)}
 .ai-status{margin-top:10px;font-size:12px;line-height:1.6;min-height:16px;word-break:break-all}
 .ai-guide{margin-top:10px;padding:10px 12px;border:1px solid #2f2745;border-radius:10px;background:#171223}
 .ai-guide-title{font-size:12px;letter-spacing:.12em;color:var(--gold);margin-bottom:6px}
@@ -2165,6 +2171,21 @@ function aiDescStyle(){
 function setAiDescStyle(v){
   try { localStorage.setItem("rk4_ai_desc_style", v === "flavor" ? "flavor" : "exact"); } catch(e){}
 }
+/* 自定义提示词：extra 会附加到默认提示词之后；replace 为真时完全替换默认提示词 */
+function aiPromptExtra(){
+  try { return localStorage.getItem("rk4_ai_prompt_extra") || ""; } catch(e){ return ""; }
+}
+function aiPromptReplace(){
+  try { return localStorage.getItem("rk4_ai_prompt_replace") === "1"; } catch(e){ return false; }
+}
+/* 把玩家的附加要求合进默认提示词 */
+function aiPromptWith(base){
+  const extra = aiPromptExtra().trim();
+  if (!extra) return base;
+  if (aiPromptReplace()) return extra;
+  return base + "\n\n【玩家附加要求（优先遵守）】\n" + extra;
+}
+
 /* 拼给 AI 的描述要求 */
 function aiDescRule(){
   return aiDescStyle() === "flavor"
@@ -2205,11 +2226,31 @@ function openAISettings(){
       具体：会写清「什么时候、多少概率、加多少」，例如「击杀敌人时 30% 概率获得 2 金币」。<br>
       文艺：只写意境，不写数值。
     </div>
+    <div class="ai-prompt-box">
+      <div class="ai-prompt-head">
+        <span>自定义提示词</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm ${aiPromptReplace() ? "ghost" : ""}" id="ai-mode-append">追加到默认</button>
+          <button class="btn sm ${aiPromptReplace() ? "" : "ghost"}" id="ai-mode-replace">替换默认</button>
+        </div>
+      </div>
+      <textarea id="ai-extra" class="ai-prompt-input" rows="4"
+        placeholder="例如：效果要有趣、避免直接加属性；优先用战斗内事件；不要生成回血类效果…">${esc(aiPromptExtra())}</textarea>
+      <div class="ai-guide-tip">
+        「追加到默认」：保留默认规则，把你的话加在后面（推荐）<br>
+        「替换默认」：只使用你写的提示词（需要自己写清输出 JSON 格式）
+      </div>
+    </div>
     <div id="ai-status" class="ai-status"></div>
     <div class="modal-close"><button class="btn sm" id="ai-save">保 存</button>
       <button class="btn ghost sm" id="ai-test">测 试 连 接</button>
       <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
   const reRender = () => { closeModal(); openAISettings(); };
+  const bAppend = div.querySelector("#ai-mode-append");
+  const bReplace = div.querySelector("#ai-mode-replace");
+  if (bAppend) bAppend.onclick = () => { try { localStorage.setItem("rk4_ai_prompt_replace", "0"); } catch(e){} reRender(); };
+  if (bReplace) bReplace.onclick = () => { try { localStorage.setItem("rk4_ai_prompt_replace", "1"); } catch(e){} reRender(); };
+
   const bExact = div.querySelector("#ai-style-exact");
   const bFlavor = div.querySelector("#ai-style-flavor");
   if (bExact) bExact.onclick = () => { setAiDescStyle("exact"); reRender(); };
@@ -2247,6 +2288,7 @@ function openAISettings(){
       localStorage.setItem("rk4_ai_base", b.trim() || "https://api.deepseek.com/v1");
       localStorage.setItem("rk4_ai_model", m.trim() || "deepseek-flash");
     } catch(e){}
+    try { localStorage.setItem("rk4_ai_prompt_extra", (div.querySelector("#ai-extra") || {}).value || ""); } catch(e){}
     const saved = (localStorage.getItem("rk4_ai_key") || "");
     const masked = saved ? saved.slice(0, 5) + "…" + saved.slice(-4) : "（空）";
     say(`已保存：${masked}`, true);
@@ -5073,7 +5115,7 @@ function openAiBoostPicker(done){
       + `请发挥想象，设计一个【和现有效果、已有强化都不同、有记忆点】的机制，自己决定触发时机。`
       + `随机种子：${Math.floor(Math.random() * 100000)}（保证这次和以往不一样）。`;
 
-    aiAsk(sys, user, (txt, err) => {
+    aiAsk(aiPromptWith(sys), user, (txt, err) => {
       const j = aiParseJSON(txt);
       const hasCode = j && j.hooks && typeof j.hooks === "object" && Object.keys(j.hooks).length;
       const spec = hasCode ? j : ((j && Array.isArray(j.triggers) && j.triggers.length) ? j : null);
@@ -5204,7 +5246,7 @@ function makeGlitchItem(a){
   const sys = "你是卡牌游戏的设计助手。生成一个机制完全随机、好坏参半的道具，"
     + "要有创意，好坏都行（可以自伤、可以倒贴钱、也可以很强），不要只是加属性。"
     + aiCodePrompt() + aiDescRule() + "名字不要给（名字由程序随机生成）。";
-  aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
+  aiAsk(aiPromptWith(sys), "请生成这样一个道具。", (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
     if (err) log(`🐛 AI 调用失败：${err}（已用本地效果）`, "sys");
@@ -5853,6 +5895,7 @@ const CHANGELOG = [
       "AI 不再生成「免疫」相关的效果",
       "AI 设置新增「描述风格」开关：具体写效果（默认，会写明时机/概率/数值）或文艺一点",
       "修复：错误技生成的主动/一次性道具点不了（现在会带上可用的使用入口）",
+      "AI 设置新增「自定义提示词」：可以把你的要求追加到默认提示词后面，或完全替换默认提示词",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
