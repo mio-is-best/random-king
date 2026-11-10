@@ -84,6 +84,7 @@ img{-webkit-user-drag:none;user-select:none}
 .ai-style-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
   margin-top:12px;padding:8px 10px;border:1px solid #2f2745;border-radius:10px;background:#171223}
 .ai-style-label{font-size:12px;color:#b9b0c8;letter-spacing:.08em}
+.ai-quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .ai-prompt-box{margin-top:12px;padding:8px 10px;border:1px solid #2f2745;border-radius:10px;background:#171223}
 .ai-prompt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
   font-size:12px;color:#b9b0c8;letter-spacing:.08em;margin-bottom:6px}
@@ -2183,6 +2184,39 @@ function setAiSysOverride(kind, text){
     else localStorage.setItem(AI_SYS_KEYS[kind], text);
   } catch(e){}
 }
+/* 生成前是否弹出「指挥 AI」的输入框 */
+function aiChatEnabled(){
+  try { return localStorage.getItem("rk4_ai_chat") === "1"; } catch(e){ return false; }
+}
+function setAiChatEnabled(v){
+  try { localStorage.setItem("rk4_ai_chat", v ? "1" : "0"); } catch(e){}
+}
+/* 让玩家临时告诉 AI 这次要怎么生成；cb(指令文本，可为空) */
+function askAiInstruction(title, cb, presets){
+  if (!aiChatEnabled()){ cb(""); return; }
+  const quick = (presets || [
+    "更有创意，别加属性", "效果要稳、别太随机", "围绕金币做文章",
+    "做成受伤/濒死相关", "做成击杀连锁", "做成一次性的爆发",
+  ]);
+  const div = modalShell(`<h3>💬 ${esc(title)}</h3>
+    <div class="msub">可以直接告诉 AI 这次想让它怎么做（留空 = 不干预）。</div>
+    <textarea id="ai-instr" class="ai-prompt-input" rows="3" placeholder="例如：做成击杀敌人时累积伤害，下一场战斗开始爆发"></textarea>
+    <div class="ai-quick">${quick.map(q => `<button class="btn ghost sm" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+    <div class="modal-close"><button class="btn sm" id="ai-instr-ok">开 始 生 成</button>
+      <button class="btn ghost sm" id="ai-instr-skip">跳 过</button></div>`);
+  const ta = div.querySelector("#ai-instr");
+  div.querySelectorAll("[data-q]").forEach(b => {
+    b.onclick = () => {
+      if (!ta) return;
+      ta.value = ta.value ? (ta.value + "；" + b.dataset.q) : b.dataset.q;
+    };
+  });
+  const ok = div.querySelector("#ai-instr-ok");
+  if (ok) ok.onclick = () => { const v = ta ? ta.value.trim() : ""; closeModal(); cb(v); };
+  const skip = div.querySelector("#ai-instr-skip");
+  if (skip) skip.onclick = () => { closeModal(); cb(""); };
+}
+
 /* 取实际要用的提示词：有覆盖就用覆盖，否则用默认 */
 function aiSysFor(kind, isActive){
   return aiSysOverride(kind) || aiSysDefault(kind, isActive);
@@ -2239,6 +2273,16 @@ function openAISettings(){
       具体：会写清「什么时候、多少概率、加多少」，例如「击杀敌人时 30% 概率获得 2 金币」。<br>
       文艺：只写意境，不写数值。
     </div>
+    <div class="ai-style-row">
+      <span class="ai-style-label">生成前先指挥 AI</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm ${aiChatEnabled() ? "" : "ghost"}" id="ai-chat-on">开</button>
+        <button class="btn sm ${aiChatEnabled() ? "ghost" : ""}" id="ai-chat-off">关</button>
+      </div>
+    </div>
+    <div class="ai-guide-tip" style="margin-top:4px">
+      开启后，火堆强化与错误技生成前会先弹出一个输入框，可以临时告诉 AI「这次想做成什么样」。
+    </div>
     <div class="ai-prompt-box">
       <div class="ai-prompt-head"><span>火堆强化 · 提示词</span>
         <button class="btn ghost sm" data-reset="boost">恢复默认</button></div>
@@ -2258,6 +2302,11 @@ function openAISettings(){
       <button class="btn ghost sm" id="ai-test">测 试 连 接</button>
       <button class="btn ghost sm" onclick="closeModal()">取 消</button></div>`);
   const reRender = () => { closeModal(); openAISettings(); };
+  const bChatOn = div.querySelector("#ai-chat-on");
+  const bChatOff = div.querySelector("#ai-chat-off");
+  if (bChatOn) bChatOn.onclick = () => { setAiChatEnabled(true); reRender(); };
+  if (bChatOff) bChatOff.onclick = () => { setAiChatEnabled(false); reRender(); };
+
   div.querySelectorAll("[data-reset]").forEach(btn => {
     btn.onclick = () => {
       const kind = btn.dataset.reset;
@@ -5118,6 +5167,9 @@ function openAiBoostPicker(done){
     const curDesc = isItem ? itDesc(target) : cardSide(target.key, target.rev).desc;
     const curBoost = target.aiDesc || "（还没有强化过）";
 
+    askAiInstruction(`强化「${name}」`, (instr) => { runBoost(instr); });
+
+    const runBoost = (instr) => {
     closeModal();
     modalShell(`<h3>✨ AI 正在强化「${esc(name)}」…</h3>
       <div class="msub">稍等片刻。</div>`);
@@ -5127,7 +5179,8 @@ function openAiBoostPicker(done){
     const sys = aiSysFor("boost", isActive);
     const user = `目标：${name}\n当前效果：${curDesc}\n已有的 AI 强化：${usedDesc}\n`
       + `请发挥想象，设计一个【和现有效果、已有强化都不同、有记忆点】的机制，自己决定触发时机。`
-      + `随机种子：${Math.floor(Math.random() * 100000)}（保证这次和以往不一样）。`;
+      + `随机种子：${Math.floor(Math.random() * 100000)}（保证这次和以往不一样）。`
+      + (instr ? `\n【玩家本次的指挥】${instr}` : "");
 
     aiAsk(sys, user, (txt, err) => {
       const j = aiParseJSON(txt);
@@ -5148,6 +5201,7 @@ function openAiBoostPicker(done){
       log(`✨ AI 强化「${name}」：${j.desc}`, "good");
       if (done) done();
     });
+    };
   };
 
   div.querySelectorAll("[data-kind]").forEach(btn => {
@@ -5256,9 +5310,16 @@ function makeGlitchItem(a){
     spawn(randomName(), randomIcon(), fb.desc, {}, fb);
     return;
   }
+  if (!aiReady()){
+    const fb = randomAiScript();
+    spawn(randomName(), randomIcon(), fb.desc, {}, fb);
+    return;
+  }
+  askAiInstruction("生成一个随机道具", (instr) => {
   modalShell(`<h3>🐛 AI 正在生成道具…</h3><div class="msub">也许很强，也许很糟。</div>`);
   const sys = aiSysFor("glitch");
-  aiAsk(sys, "请生成这样一个道具。", (txt, err) => {
+  const user = "请生成这样一个道具。" + (instr ? `\n【玩家本次的指挥】${instr}` : "");
+  aiAsk(sys, user, (txt, err) => {
     closeModal();
     const j = aiParseJSON(txt);
     if (err) log(`🐛 AI 调用失败：${err}（已用本地效果）`, "sys");
@@ -5266,6 +5327,7 @@ function makeGlitchItem(a){
     const spec = hasCode ? j : ((j && Array.isArray(j.triggers) && j.triggers.length) ? j : randomAiScript());
     // 名字一律真随机，不用 AI 给的
     spawn(randomName(), randomIcon(), (j && j.desc) || spec.desc, {}, spec);
+  });
   });
 }
 
@@ -5908,6 +5970,7 @@ const CHANGELOG = [
       "AI 设置新增「描述风格」开关：具体写效果（默认，会写明时机/概率/数值）或文艺一点",
       "修复：错误技生成的主动/一次性道具点不了（现在会带上可用的使用入口）",
       "AI 设置里直接显示两种功能（火堆强化 / 错误技）的完整提示词，可以任意修改，也能一键恢复默认",
+      "AI 设置新增开关：生成前先弹出输入框，指挥 AI 这次要生成什么（带快捷短语）",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
