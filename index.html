@@ -4071,6 +4071,9 @@ function renderHUD(){
   if (st.attackCount !== 1) chips.push(`<span class="tag stat-chip" data-stat="attackCount" title="点击查看明细">攻击 ×${st.attackCount}</span>`);
   if (st.mult !== 1) chips.push(chip("mult", "伤害", st.mult).replace(/伤害 [+-]?[\d.]+/, "伤害 ×" + round2(st.mult)));
   if (S.nineLives != null && S.nineLives > 0) chips.push(`<span class="tag hot">剩余命 ${S.nineLives}</span>`);
+  // AI 生成的机制也进属性栏
+  const aiList = collectAiEffects();
+  if (aiList.length) chips.push(`<span class="tag stat-chip" data-stat="aiEffects" title="点击查看 AI 生成的机制">✨ AI 效果 ${aiList.length}</span>`);
 
   $("#hud").innerHTML = `
     <div class="hud-card hud-hp">
@@ -4102,8 +4105,72 @@ function renderHUD(){
   `;
   $$("#hud .stat-chip").forEach(el => {
     el.style.cursor = "pointer";
-    el.onclick = (ev) => { ev.stopPropagation(); openStatDetail(el.dataset.stat); };
+    el.onclick = (ev) => {
+      ev.stopPropagation();
+      if (el.dataset.stat === "aiEffects") openAiEffectList();
+      else openStatDetail(el.dataset.stat);
+    };
   });
+}
+
+
+/* 收集本局所有 AI 生成的机制（道具 / 塔罗 / 错误技） */
+function collectAiEffects(){
+  const out = [];
+  for (const it of (S.items || [])){
+    if (it.boostLevel || it.aiDesc || (it.aiHooks && Object.keys(it.aiHooks).length)){
+      out.push({
+        icon: it.def.icon || "✨",
+        name: itName(it),
+        desc: it.aiDesc || "（AI 强化）",
+        kind: it.def.kind === "oneshot" ? "一次性" : (it.def.use ? "主动" : "被动"),
+        from: "道具强化",
+      });
+    }
+  }
+  for (const c of (S.cards || [])){
+    if (c.aiDesc || (c.aiHooks && Object.keys(c.aiHooks).length)){
+      const d = tarotDef(c.key);
+      out.push({
+        icon: d ? d.ico : "🔮",
+        name: (d ? d.name : c.key) + (c.rev ? "（逆位）" : "（正位）"),
+        desc: c.aiDesc || "（AI 强化）",
+        kind: "塔罗",
+        from: "塔罗强化",
+      });
+    }
+  }
+  for (const d of ITEMS){
+    if (!d.hidden) continue;
+    if (!(S.glitchIds || []).includes(d.id)) continue;
+    if (!(S.items || []).some(i => i.def.id === d.id)) continue;
+    out.push({
+      icon: d.icon || "🐛",
+      name: d.name,
+      desc: d.desc,
+      kind: d.kind === "oneshot" ? "一次性" : (d.use ? "主动" : "被动"),
+      from: "错误技",
+    });
+  }
+  return out;
+}
+
+/* 属性栏里点「AI 效果」打开的面板 */
+function openAiEffectList(){
+  const list = collectAiEffects();
+  const rows = list.length ? list.map(e => `
+    <div class="modal-row" style="align-items:flex-start">
+      <div class="mi">${esc(e.icon)}</div>
+      <div style="flex:1">
+        <div class="mn">${esc(e.name)}<span style="color:#8d849b;font-size:11px"> · ${esc(e.kind)} · ${esc(e.from)}</span></div>
+        <div class="md">${esc(e.desc)}</div>
+      </div>
+    </div>`).join("") : `<div class="empty-note">本局还没有 AI 生成的机制</div>`;
+
+  modalShell(`<h3>✨ AI 生成的机制（${list.length}）</h3>
+    <div class="msub">这些是 AI 现场写出来的效果，已经并入了属性与战斗结算。</div>
+    ${rows}
+    <div class="modal-close"><button class="btn sm" onclick="closeModal()">关 闭</button></div>`);
 }
 
 /* 点击状态词条：列出这一项是怎么加起来的 */
@@ -4193,8 +4260,27 @@ function openStatDetail(key){
     acc = isMult ? acc * v : acc + v;
   }
 
-  const groupName = { base:"基础", item:"道具属性", card:"塔罗牌", grow:"永久成长", skill:"技能 / 动态效果" };
-  const order = ["base", "item", "card", "grow", "skill"];
+  // AI 强化的数值加成
+  for (const it of (S.items || [])){
+    const m = it.aiMods;
+    if (!m || m[key] == null) continue;
+    const v = m[key];
+    if (isMult ? Math.abs(v - 1) < 0.001 : !v) continue;
+    rows.push({ name: `✨ ${itName(it)}（AI）`, v, mark: isMult ? "×" : "", group: "ai" });
+    acc = isMult ? acc * v : acc + v;
+  }
+  for (const c of (S.cards || [])){
+    const m = c.aiMods;
+    if (!m || m[key] == null) continue;
+    const v = m[key];
+    if (isMult ? Math.abs(v - 1) < 0.001 : !v) continue;
+    const d = tarotDef(c.key);
+    rows.push({ name: `✨ ${d ? d.name : c.key}（AI）`, v, mark: isMult ? "×" : "", group: "ai" });
+    acc = isMult ? acc * v : acc + v;
+  }
+
+  const groupName = { base:"基础", item:"道具属性", card:"塔罗牌", ai:"AI 强化", grow:"永久成长", skill:"技能 / 动态效果" };
+  const order = ["base", "item", "card", "ai", "grow", "skill"];
   const rowsHTML = order.map(g => {
     const list = rows.filter(r => r.group === g);
     if (!list.length) return "";
@@ -5971,6 +6057,7 @@ const CHANGELOG = [
       "修复：错误技生成的主动/一次性道具点不了（现在会带上可用的使用入口）",
       "AI 设置里直接显示两种功能（火堆强化 / 错误技）的完整提示词，可以任意修改，也能一键恢复默认",
       "AI 设置新增开关：生成前先弹出输入框，指挥 AI 这次要生成什么（带快捷短语）",
+      "AI 生成的新机制也会进入属性栏：状态栏多一个「✨ AI 效果」词条，可查看全部效果；属性详情里也会列出 AI 的数值加成",
       "修复：填写 API Key 后火堆没有出现「强化（AI）」选项",
       "火神开道只改造当前位置下方连接的非战斗节点",
       "错误技：名字改为真随机字符（各种文字/符号/表情），效果好坏参半且更容易出坏效果",
